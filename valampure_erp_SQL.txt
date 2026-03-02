@@ -1,0 +1,32 @@
+CREATE SCHEMA valampure_erp;
+
+-- Creating the Profile table inside the new schema
+CREATE TABLE valampure_erp.profiles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    mobile_number VARCHAR(15) UNIQUE NOT NULL,
+    pin_hash VARCHAR(255) NOT NULL,
+    owner_name VARCHAR(100),
+    company_name VARCHAR(150),
+    
+    -- Business Details (Header/Footer info)
+    gstin VARCHAR(15),
+    address TEXT,
+    state_code VARCHAR(5) DEFAULT '33', -- Tamil Nadu
+	area_code VARCHAR(20),
+    bank_name VARCHAR(100),
+    account_no VARCHAR(30),
+    ifsc_code VARCHAR(20),
+	logo_url TEXT,
+    
+    -- Access Control
+    support_expiry_date DATE DEFAULT CURRENT_DATE + INTERVAL '30 days',
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+
+ALTER TABLE valampure_erp.profiles 
+ADD COLUMN role VARCHAR(20) DEFAULT 'OWNER'; 
+-- Options: 'OWNER', 'STAFF', 'SUPERVISOR'
+
+
