@@ -1,7 +1,5 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
-// USE: Securely stores the JWT token and user identity in the device's keychain.
-// WHEN: Triggered after a successful login or when checking if a session is still valid.
 class AuthStorage {
   AuthStorage._internal();
   static final AuthStorage instance = AuthStorage._internal();
@@ -10,32 +8,22 @@ class AuthStorage {
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
   );
 
-  // Updated key name for Valampure
   static const String _tokenKey = "valampure_jwt";
   static const String _userIdKey = "valampure_user_id";
+  static const String _roleKey = "valampure_role";
 
-  // USE: Saves the token after a successful /login response.
-  Future<void> saveToken(String token) async {
-    await _storage.write(key: _tokenKey, value: token);
-  }
+  // SAVE METHODS
+  Future<void> saveToken(String token) async =>
+      await _storage.write(key: _tokenKey, value: token);
+  Future<void> saveUserId(String userId) async =>
+      await _storage.write(key: _userIdKey, value: userId);
+  Future<void> saveRole(String role) async =>
+      await _storage.write(key: _roleKey, value: role);
 
-  // USE: Saves the user ID so we know which business profile to fetch.
-  Future<void> saveUserId(String userId) async {
-    await _storage.write(key: _userIdKey, value: userId);
-  }
+  // GET METHODS
+  Future<String?> getToken() async => await _storage.read(key: _tokenKey);
+  Future<String?> getUserId() async => await _storage.read(key: _userIdKey);
+  Future<String?> getRole() async => await _storage.read(key: _roleKey);
 
-  // USE: Used by ApiClient to attach the 'Bearer' token to headers.
-  Future<String?> getToken() async {
-    return await _storage.read(key: _tokenKey);
-  }
-
-  Future<String?> getUserId() async {
-    return await _storage.read(key: _userIdKey);
-  }
-
-  // USE: Completely wipes user data.
-  // WHEN: Triggered on Logout or when a 403 (Expiry) error is detected.
-  Future<void> clear() async {
-    await _storage.deleteAll(); // Clears everything (token and user ID)
-  }
+  Future<void> clear() async => await _storage.deleteAll();
 }

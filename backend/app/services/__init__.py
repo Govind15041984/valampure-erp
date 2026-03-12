@@ -1,0 +1,1 @@
+from app.services import minio_service

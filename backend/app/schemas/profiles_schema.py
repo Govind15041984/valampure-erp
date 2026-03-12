@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from typing import Optional
 from datetime import date
+from uuid import UUID
 
 # 1. Used only for the initial Signup screen
 class UserCreate(BaseModel):
@@ -47,3 +48,7 @@ class ProfileOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+class LoginRequest(BaseModel):
+    mobile: str
+    pin: str

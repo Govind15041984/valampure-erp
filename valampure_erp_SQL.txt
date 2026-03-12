@@ -29,4 +29,327 @@ ALTER TABLE valampure_erp.profiles
 ADD COLUMN role VARCHAR(20) DEFAULT 'OWNER'; 
 -- Options: 'OWNER', 'STAFF', 'SUPERVISOR'
 
+--========================================================================================
+
+-- Production Log Table
+CREATE TABLE valampure_erp.Manufacturing_Entry (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    profile_id UUID NOT NULL REFERENCES valampure_erp.profiles(id),
+    production_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    
+    -- Finished Goods Output
+    description TEXT NOT NULL, -- e.g., "White Elastic"
+    size_mm TEXT NOT NULL,      -- e.g., "8.5 MM"
+    boxes INTEGER NOT NULL,
+    total_mts NUMERIC NOT NULL,
+    
+    -- Raw Material Consumption
+    yarn_used_kg NUMERIC NOT NULL DEFAULT 0,
+    rubber_used_kg NUMERIC NOT NULL DEFAULT 0,
+    
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    
+    CONSTRAINT fk_profile FOREIGN KEY (profile_id) REFERENCES valampure_erp.profiles(id)
+);
+
+-- Index for faster searching by date
+CREATE INDEX idx_production_date ON valampure_erp.Manufacturing_Entry(production_date);
+
+--==============================================================================================
+-- USE: To store the real-time balance of finished elastic rolls/meters.
+-- WHEN: Updated automatically whenever a production entry or a sales invoice is saved.
+CREATE TABLE valampure_erp.Finished_Goods_Stock (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    profile_id UUID NOT NULL REFERENCES valampure_erp.profiles(id),
+    description TEXT NOT NULL, -- e.g., "White Elastic"
+    size_mm TEXT NOT NULL,      -- e.g., "8.5 MM"
+    total_boxes_in_hand INTEGER DEFAULT 0,
+    total_mts_in_hand NUMERIC DEFAULT 0,
+    last_updated TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    
+    -- Ensures we don't have duplicate rows for the same size/type
+    UNIQUE(profile_id, description, size_mm)
+);
+
+-- USE: To track the "In/Out" movement of every specific size of elastic.
+-- WHEN: Automatically triggered by Production Logs or Sales Invoices.
+CREATE TABLE valampure_erp.Stock_Ledger (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    profile_id UUID NOT NULL REFERENCES valampure_erp.profiles(id),
+    transaction_date TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    
+    -- Item Details
+    description TEXT NOT NULL, 
+    size_mm TEXT NOT NULL,      -- Crucial: "8.5 MM", "20 MM", etc.
+    
+    -- Movement
+    transaction_type TEXT NOT NULL, -- 'PRODUCTION', 'SALE', 'RETURN', 'ADJUSTMENT'
+    reference_id UUID,              -- Links back to the specific Production Log or Invoice
+    qty_in NUMERIC DEFAULT 0,
+    qty_out NUMERIC DEFAULT 0,
+    
+    -- The balance at the time of this specific transaction
+    running_balance NUMERIC NOT NULL, 	
+    
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Index for fast searching by size and date
+CREATE INDEX idx_ledger_size ON valampure_erp.Stock_Ledger(size_mm);
+CREATE INDEX idx_ledger_date ON valampure_erp.Stock_Ledger(transaction_date);
+
+====================================================================================================================
+
+CREATE TABLE valampure_erp.partners (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    profile_id UUID NOT NULL,
+    
+    -- Identity Details
+    name VARCHAR(255) NOT NULL,
+    partner_type VARCHAR(20) NOT NULL, -- 'SUPPLIER' or 'BUYER'
+    mobile_number VARCHAR(15),
+    gstin VARCHAR(15),
+    address TEXT,
+    state_code VARCHAR(2), -- '33' for Tamil Nadu
+    
+    -- Financial Tracking
+    opening_balance NUMERIC(15, 2) DEFAULT 0.00,
+    current_balance NUMERIC(15, 2) DEFAULT 0.00,
+    
+    -- Metadata
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+
+    -- Constraints
+    CONSTRAINT fk_profile FOREIGN KEY (profile_id) REFERENCES valampure_erp.profiles(id) ON DELETE CASCADE,
+    CONSTRAINT check_partner_type CHECK (partner_type IN ('SUPPLIER', 'BUYER'))
+);
+
+-- 2. Add an Index for faster searching by Name and Type
+CREATE INDEX idx_partners_name_type ON valampure_erp.partners (name, partner_type);
+CREATE INDEX idx_partners_profile ON valampure_erp.partners (profile_id);
+
+-- 3. Create a Trigger to update 'updated_at' automatically
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+CREATE TRIGGER update_partners_modtime
+    BEFORE UPDATE ON valampure_erp.partners
+    FOR EACH ROW
+    EXECUTE PROCEDURE update_updated_at_column();
+
+=====================================================================================================================
+-- 1. THE MASTER TABLE (The Bill Header)
+CREATE TABLE valampure_erp.purchase_master (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    profile_id UUID NOT NULL,
+    partner_id UUID NOT NULL, -- Links to Jai Traders
+    
+    bill_number VARCHAR(50),
+    bill_date DATE DEFAULT CURRENT_DATE,
+    
+    -- Storage & Tax Info
+    bill_url TEXT,            -- MinIO Link to the scanned bill
+    is_gst BOOLEAN DEFAULT FALSE,
+    
+    -- Financials (The Final Truth)
+    total_sub_total NUMERIC(15, 2) DEFAULT 0.00,
+    total_tax_amount NUMERIC(15, 2) DEFAULT 0.00,
+    final_amount NUMERIC(15, 2) NOT NULL, -- The EDITABLE field from your UI
+    
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_profile FOREIGN KEY (profile_id) REFERENCES valampure_erp.profiles(id),
+    CONSTRAINT fk_partner FOREIGN KEY (partner_id) REFERENCES valampure_erp.partners(id)
+);
+
+-- 2. THE DETAIL TABLE (The Item Categories)
+CREATE TABLE valampure_erp.purchase_details (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    purchase_id UUID NOT NULL REFERENCES valampure_erp.purchase_master(id) ON DELETE CASCADE,
+    
+    category VARCHAR(50) NOT NULL, -- Yarn, Rubber, Boxes, etc.
+    quantity NUMERIC(15, 2) NOT NULL,
+    uom VARCHAR(10) NOT NULL,      -- Kgs, Pcs, Rolls
+    rate NUMERIC(15, 2) NOT NULL,
+    line_total NUMERIC(15, 2) NOT NULL, -- Qty * Rate
+    
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 1. Create the Function
+CREATE OR REPLACE FUNCTION valampure_erp.fn_update_partner_balance_on_purchase()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Increase the partner's balance by the final_amount of the purchase
+    UPDATE valampure_erp.partners
+    SET current_balance = current_balance + NEW.final_amount
+    WHERE id = NEW.partner_id;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- 2. Create the Trigger
+CREATE TRIGGER trg_after_purchase_insert
+AFTER INSERT ON valampure_erp.purchase_master
+FOR EACH ROW
+EXECUTE FUNCTION valampure_erp.fn_update_partner_balance_on_purchase();
+
+=========================================================================================
+
+-- Sales Master Table
+CREATE TABLE valampure_erp.sales_master (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    profile_id UUID NOT NULL,
+    partner_id UUID NOT NULL REFERENCES valampure_erp.partners(id),
+    invoice_number VARCHAR(50) UNIQUE NOT NULL,
+    invoice_date DATE NOT NULL,
+    is_gst BOOLEAN DEFAULT TRUE,
+    total_taxable_value NUMERIC(15,2) NOT NULL,
+    cgst_amount NUMERIC(15,2) DEFAULT 0,
+    sgst_amount NUMERIC(15,2) DEFAULT 0,
+    igst_amount NUMERIC(15,2) DEFAULT 0,
+    round_off NUMERIC(15,2) DEFAULT 0,
+    grand_total NUMERIC(15,2) NOT NULL,
+    bill_url TEXT, 
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Sales Detail Table
+CREATE TABLE valampure_erp.sales_detail (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    sales_id UUID REFERENCES valampure_erp.sales_master(id) ON DELETE CASCADE,
+    description TEXT NOT NULL,
+    hsn_code VARCHAR(20),
+    box_count INT DEFAULT 0,
+    mts_count NUMERIC(15,2) DEFAULT 0,
+    total_qty NUMERIC(15,2) NOT NULL, -- Sum of MTS
+    rate NUMERIC(15,2) NOT NULL,
+    line_total NUMERIC(15,2) NOT NULL
+);
+
+ALTER TABLE valampure_erp.sales_detail 
+ADD COLUMN size_mm VARCHAR(50);
+
+-- RE-CONFIRM TRIGGER (Ensure it exists for Sales)
+CREATE OR REPLACE FUNCTION valampure_erp.fn_update_customer_balance_on_sale()
+RETURNS TRIGGER AS $$
+BEGIN
+    UPDATE valampure_erp.partners
+    SET current_balance = current_balance + NEW.grand_total
+    WHERE id = NEW.partner_id;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_after_sales_insert
+AFTER INSERT ON valampure_erp.sales_master
+FOR EACH ROW
+EXECUTE FUNCTION valampure_erp.fn_update_customer_balance_on_sale();
+
+
+CREATE OR REPLACE FUNCTION valampure_erp.fn_update_stock_on_sale()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_stock_id UUID;
+BEGIN
+    -- Match by BOTH size and description
+    SELECT id INTO v_stock_id
+    FROM valampure_erp.finished_goods_stock
+    WHERE description = NEW.description 
+      AND size_mm = NEW.size_mm  -- This is the missing link!
+      AND profile_id = (SELECT profile_id FROM valampure_erp.sales_master WHERE id = NEW.sales_id);
+
+    IF v_stock_id IS NULL THEN
+        RAISE EXCEPTION 'No matching stock found for: % (Size: %)', NEW.description, NEW.size_mm;
+    END IF;
+
+    -- Update the stock
+    UPDATE valampure_erp.finished_goods_stock
+    SET total_boxes_in_hand = total_boxes_in_hand - NEW.box_count,
+        total_mts_in_hand = total_mts_in_hand - NEW.total_qty,
+        last_updated = CURRENT_TIMESTAMP
+    WHERE id = v_stock_id;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_after_sales_item_insert
+AFTER INSERT ON valampure_erp.sales_detail
+FOR EACH ROW
+EXECUTE FUNCTION valampure_erp.fn_update_stock_on_sale();
+========================================================================================
+
+CREATE TABLE valampure_erp.payments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    profile_id UUID NOT NULL, -- Links to your Valampure Profile
+    partner_id UUID NOT NULL REFERENCES valampure_erp.partners(id) ON DELETE CASCADE,
+    
+    payment_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    -- 'RECEIPT' for money from Buyers, 'PAYMENT' for money to Suppliers
+    payment_type TEXT NOT NULL CHECK (payment_type IN ('RECEIPT', 'PAYMENT')), 
+    
+    amount NUMERIC(15, 2) NOT NULL CHECK (amount > 0),
+    payment_mode TEXT, -- e.g., 'Cash', 'UPI', 'Bank Transfer'
+    reference_no TEXT, -- e.g., Transaction ID or Cheque Number
+    remarks TEXT,
+    
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Index for faster ledger lookups
+CREATE INDEX idx_payments_partner_id ON valampure_erp.payments(partner_id);
+
+-- 1. Create the Function
+CREATE OR REPLACE FUNCTION valampure_erp.fn_update_partner_balance_on_payment()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Subtract the payment amount from the partner's balance
+    -- (Reduces Payable for Suppliers and Receivable for Buyers)
+    UPDATE valampure_erp.partners
+    SET current_balance = current_balance - NEW.amount
+    WHERE id = NEW.partner_id;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- 2. Create the Trigger
+CREATE TRIGGER trg_after_payment_insert
+AFTER INSERT ON valampure_erp.payments
+FOR EACH ROW
+EXECUTE FUNCTION valampure_erp.fn_update_partner_balance_on_payment();
+
+=================================================================================================
+
+CREATE TABLE valampure_erp.daily_expenses (
+    id SERIAL PRIMARY KEY,
+    expense_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    item_name VARCHAR(150) NOT NULL,
+    category VARCHAR(50) DEFAULT 'General',
+    amount DECIMAL(12, 2) NOT NULL DEFAULT 0.00,
+    payment_mode VARCHAR(20) DEFAULT 'CASH',
+    remarks TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Optional: Create an index on the date for faster dashboard loading
+CREATE INDEX idx_expense_date ON valampure_erp.daily_expenses(expense_date);
+
+-- 1. Add it back as a UUID type to match your profiles table
+ALTER TABLE valampure_erp.daily_expenses 
+ADD COLUMN profile_id UUID;
+
+-- 2. Now apply the Foreign Key constraint
+ALTER TABLE valampure_erp.daily_expenses 
+ADD CONSTRAINT fk_profile 
+FOREIGN KEY (profile_id) REFERENCES valampure_erp.profiles(id);
 

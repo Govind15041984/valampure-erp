@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 from app.models.profiles_model import Profile
 from app.schemas.profiles_schema import UserCreate, ProfileUpdate
+from uuid import UUID
 
 # Setup for PIN encryption
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")

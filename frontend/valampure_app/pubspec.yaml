@@ -31,7 +31,12 @@ dependencies:
   flutter:
     sdk: flutter
   flutter_secure_storage: ^9.0.0
-  http: ^1.1.0                   # You'll need this for ApiClient too
+  http: ^1.1.0
+  image_picker: ^1.2.1 # You'll need this for ApiClient too
+  pdf: ^3.10.7
+  printing: ^5.11.1
+  path_provider: ^2.1.1
+  fl_chart: ^0.70.0
 
   # For State Management (I'll assume Provider for now, let me know if you prefer another)
   provider: ^6.1.1

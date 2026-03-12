@@ -61,12 +61,11 @@ class _PinScreenState extends State<PinScreen> {
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context); // Close dialog
-              Navigator.push(
+              Navigator.pushNamed(
                 context,
-                MaterialPageRoute(
-                  builder: (context) =>
-                      SignupScreen(mobile: widget.mobileNumber),
-                ),
+                '/signup',
+                arguments:
+                    widget.mobileNumber, // Pass the mobile number to the route
               );
             },
             child: const Text("REGISTER"),

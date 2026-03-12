@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import '../../../api/profiles_api.dart';
 import '../../../theme/app_colors.dart';
-import 'pin_screen.dart';
 
 class MobileScreen extends StatefulWidget {
   const MobileScreen({super.key});
@@ -11,23 +11,47 @@ class MobileScreen extends StatefulWidget {
 
 class _MobileScreenState extends State<MobileScreen> {
   final TextEditingController _mobileController = TextEditingController();
+  bool _isLoading = false; // Added to show progress during API check
 
-  void _proceedToPin() {
+  // This handles your logic: Check existence -> Route accordingly
+  Future<void> _handleContinue() async {
     String mobile = _mobileController.text.trim();
-    if (mobile.length == 10) {
-      // Navigate to PIN screen and pass the mobile number
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => PinScreen(mobileNumber: mobile),
-        ),
-      );
-    } else {
+
+    if (mobile.length != 10) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text("Please enter a valid 10-digit mobile number"),
         ),
       );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    try {
+      // 1. API Call to check if user exists in 'valampure' schema
+      bool exists = await ProfilesApi.checkUser(mobile);
+
+      if (mounted) {
+        if (exists) {
+          // Returning User -> Go to PIN Screen
+          Navigator.pushNamed(context, '/pin', arguments: mobile);
+        } else {
+          // New Business -> Go to Signup Screen
+          Navigator.pushNamed(context, '/signup', arguments: mobile);
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Connection Error: ${e.toString()}"),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -37,9 +61,7 @@ class _MobileScreenState extends State<MobileScreen> {
       backgroundColor: AppColors.background,
       body: Center(
         child: Container(
-          constraints: const BoxConstraints(
-            maxWidth: 400,
-          ), // Perfect for Laptop View
+          constraints: const BoxConstraints(maxWidth: 400),
           padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -64,6 +86,8 @@ class _MobileScreenState extends State<MobileScreen> {
               TextField(
                 controller: _mobileController,
                 keyboardType: TextInputType.phone,
+                // Enabled/Disabled based on loading state
+                enabled: !_isLoading,
                 decoration: const InputDecoration(
                   labelText: "Mobile Number",
                   prefixText: "+91 ",
@@ -71,17 +95,22 @@ class _MobileScreenState extends State<MobileScreen> {
                 ),
               ),
               const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: _proceedToPin,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.accent,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-                child: const Text(
-                  "NEXT",
-                  style: TextStyle(color: Colors.white),
-                ),
-              ),
+              _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : ElevatedButton(
+                      onPressed: _handleContinue, // Trigger the check
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.accent,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      child: const Text(
+                        "CONTINUE",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
             ],
           ),
         ),

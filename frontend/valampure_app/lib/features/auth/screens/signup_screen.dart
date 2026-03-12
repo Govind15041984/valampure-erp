@@ -41,7 +41,19 @@ class _SignupScreenState extends State<SignupScreen> {
           const SnackBar(content: Text("Account created! Please login.")),
         );
         // Go back to PIN screen to let them login for the first time
-        Navigator.pop(context);
+        if (success && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Account created! Enter your PIN to login."),
+            ),
+          );
+          // Remove signup from stack and go back to PIN screen
+          Navigator.pushReplacementNamed(
+            context,
+            '/pin',
+            arguments: widget.mobile,
+          );
+        }
       }
     } catch (e) {
       _showError(e.toString());
