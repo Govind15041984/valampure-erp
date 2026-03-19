@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../api/sales_api.dart';
 import '../../../theme/app_colors.dart';
+import '../../../core/pdf_service.dart';
 
 class SalesDetailView extends StatefulWidget {
   final String saleId;
@@ -12,6 +13,29 @@ class SalesDetailView extends StatefulWidget {
   State<SalesDetailView> createState() => _SalesDetailViewState();
 }
 
+class InvoiceItem {
+  final String description;
+  final int boxes;
+  final double mts;
+  final double rate;
+
+  InvoiceItem({
+    required this.description,
+    required this.boxes,
+    required this.mts,
+    required this.rate,
+  });
+
+  factory InvoiceItem.fromJson(Map<String, dynamic> json) {
+    return InvoiceItem(
+      description: json['description'] ?? '',
+      boxes: (json['boxes'] ?? 0) as int,
+      mts: (json['mts_count'] ?? 0).toDouble(),
+      rate: (json['rate'] ?? 0).toDouble(),
+    );
+  }
+}
+
 class _SalesDetailViewState extends State<SalesDetailView> {
   late Future<Map<String, dynamic>> _saleDetailFuture;
 
@@ -19,6 +43,48 @@ class _SalesDetailViewState extends State<SalesDetailView> {
   void initState() {
     super.initState();
     _saleDetailFuture = SalesApi.getSaleDetails(widget.saleId);
+  }
+
+  Future<void> _printInvoice() async {
+    try {
+      final sale = await _saleDetailFuture;
+
+      /// convert API map items -> InvoiceItem list
+      final List<InvoiceItem> invoiceItems =
+      (sale['items'] as List<dynamic>? ?? [])
+          .map((e) => InvoiceItem.fromJson(e))
+          .toList();
+
+      await PdfService.generateAndPrintInvoice(
+        invoiceNo: sale['invoice_no'] ?? '',
+        orderNo: sale['order_no'] ?? '',
+        buyerName: sale['partner_name'] ?? '',
+        buyerGST: sale['partner_gstin'] ?? '',
+        buyerState: sale['state'] ?? 'Tamil Nadu',
+        buyerStateCode: sale['stateCode'] ?? '33',
+        items: invoiceItems,
+        subTotal: (sale['taxable_value'] ?? 0).toDouble(),
+        tax: ((sale['sgst'] ?? 0) + (sale['cgst'] ?? 0)).toDouble(),
+        grandTotal: (sale['grand_total'] ?? 0).toDouble(),
+        company: {
+          'name': 'Valampure Elastics',
+          'gstin': '33AACFV9863A2Z6',
+          'address1': 'S.F. No. 96, 1A1C, New Pillayar Nagar, Pudhuroad Pirivu,',
+          'address2': 'Pollikalipalayam (P.O), Tiruppur - 641 665, Mobile: 9600911091',
+          'stateCode': '33',
+          'areaCode': '124'
+        },
+        bank: {
+          'bankName': 'ICICI BANK',
+          'accountNo': '410505001141',
+          'ifsc': 'ICIC0004105',
+        },
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Print failed: $e")),
+      );
+    }
   }
 
   @override
@@ -34,11 +100,10 @@ class _SalesDetailViewState extends State<SalesDetailView> {
         elevation: 0,
         actions: [
           IconButton(
-            icon: const Icon(Icons.print),
-            onPressed: () {
-              // Trigger existing PDF Service here if needed
-            },
-          ),
+              icon: const Icon(Icons.print),
+              onPressed: () async {
+                await _printInvoice();
+              }),
         ],
       ),
       body: FutureBuilder<Map<String, dynamic>>(
@@ -53,6 +118,7 @@ class _SalesDetailViewState extends State<SalesDetailView> {
           }
 
           final sale = snapshot.data!;
+
           return SingleChildScrollView(
             child: Column(
               children: [
@@ -74,7 +140,6 @@ class _SalesDetailViewState extends State<SalesDetailView> {
     );
   }
 
-  // REPLICATING YOUR HEADER LOGIC
   Widget _buildReadonlyHeader(Map<String, dynamic> sale) {
     return Container(
       padding: const EdgeInsets.all(12),
@@ -91,11 +156,9 @@ class _SalesDetailViewState extends State<SalesDetailView> {
             children: [
               Expanded(child: _readonlyField("Inv No", sale['invoice_no'])),
               const SizedBox(width: 5),
-              Expanded(
-                child: _readonlyField("Order No", sale['order_no'] ?? "-"),
-              ),
+              Expanded(child: _readonlyField("Order No", sale['order_no'] ?? "-")),
               const SizedBox(width: 5),
-              Expanded(child: _readonlyField("Date", sale['invoice_date'])),
+              Expanded(child: _readonlyField("Date", sale['invoice_date'] ?? "")),
             ],
           ),
         ],
@@ -103,16 +166,15 @@ class _SalesDetailViewState extends State<SalesDetailView> {
     );
   }
 
-  // REPLICATING YOUR TABLE LAYOUT (7 COLUMNS)
   Widget _buildReadonlyItemsTable(List items) {
     return Table(
       columnWidths: const {
-        0: FlexColumnWidth(3), // Item/Description
-        1: FixedColumnWidth(35), // Box
-        2: FixedColumnWidth(50), // Mts
-        3: FixedColumnWidth(60), // Qty
-        4: FixedColumnWidth(45), // Rate
-        5: FixedColumnWidth(70), // Amt
+        0: FlexColumnWidth(3),
+        1: FixedColumnWidth(35),
+        2: FixedColumnWidth(50),
+        3: FixedColumnWidth(60),
+        4: FixedColumnWidth(45),
+        5: FixedColumnWidth(70),
       },
       border: TableBorder.all(color: Colors.black12),
       children: [
@@ -128,6 +190,8 @@ class _SalesDetailViewState extends State<SalesDetailView> {
           ],
         ),
         ...items.map((item) {
+          final amount = (item['amount'] ?? 0).toDouble();
+
           return TableRow(
             children: [
               _tdText(
@@ -142,7 +206,7 @@ class _SalesDetailViewState extends State<SalesDetailView> {
                 color: Colors.blueGrey,
               ),
               _tdText(item['rate'].toString()),
-              _tdText(item['amount'].toStringAsFixed(2), isBold: true),
+              _tdText(amount.toStringAsFixed(2), isBold: true),
             ],
           );
         }),
@@ -150,7 +214,6 @@ class _SalesDetailViewState extends State<SalesDetailView> {
     );
   }
 
-  // REPLICATING YOUR SUMMARY BOX
   Widget _buildSummarySection(Map<String, dynamic> sale) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 12),
@@ -174,8 +237,6 @@ class _SalesDetailViewState extends State<SalesDetailView> {
     );
   }
 
-  // --- REUSING YOUR UI HELPERS ---
-
   Widget _readonlyField(String label, String value) {
     return Container(
       padding: const EdgeInsets.all(8),
@@ -187,19 +248,12 @@ class _SalesDetailViewState extends State<SalesDetailView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 9,
-              color: Colors.grey,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
+          Text(label,
+              style: const TextStyle(
+                  fontSize: 9, color: Colors.grey, fontWeight: FontWeight.bold)),
           const SizedBox(height: 2),
-          Text(
-            value,
-            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-          ),
+          Text(value,
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
         ],
       ),
     );
@@ -207,50 +261,42 @@ class _SalesDetailViewState extends State<SalesDetailView> {
 
   Widget _th(String label) => Padding(
     padding: const EdgeInsets.all(8),
-    child: Text(
-      label,
-      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 9),
-    ),
+    child: Text(label,
+        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 9)),
   );
 
-  Widget _tdText(
-    String val, {
-    bool isBold = false,
-    Color? color,
-    TextAlign align = TextAlign.right,
-  }) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
-    child: Text(
-      val,
-      style: TextStyle(
-        fontSize: 9,
-        fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
-        color: color,
-      ),
-      textAlign: align,
-    ),
-  );
+  Widget _tdText(String val,
+      {bool isBold = false,
+        Color? color,
+        TextAlign align = TextAlign.right}) =>
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+        child: Text(
+          val,
+          style: TextStyle(
+              fontSize: 9,
+              fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+              color: color),
+          textAlign: align,
+        ),
+      );
 
   Widget _rowVal(String label, dynamic val, {bool isBold = false}) {
+    final num value = (val ?? 0) as num;
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
-              fontSize: isBold ? 16 : 14,
-            ),
-          ),
-          Text(
-            "₹ ${(val as num).toStringAsFixed(2)}",
-            style: TextStyle(
-              fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
-              fontSize: isBold ? 16 : 14,
-            ),
-          ),
+          Text(label,
+              style: TextStyle(
+                  fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+                  fontSize: isBold ? 16 : 14)),
+          Text("₹ ${value.toStringAsFixed(2)}",
+              style: TextStyle(
+                  fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+                  fontSize: isBold ? 16 : 14)),
         ],
       ),
     );
@@ -262,14 +308,11 @@ class _SalesDetailViewState extends State<SalesDetailView> {
       children: [
         const Icon(Icons.list_alt, size: 16, color: Colors.grey),
         const SizedBox(width: 5),
-        Text(
-          label,
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
-            color: Colors.grey,
-            fontSize: 11,
-          ),
-        ),
+        Text(label,
+            style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.grey,
+                fontSize: 11)),
       ],
     ),
   );
