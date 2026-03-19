@@ -13,6 +13,7 @@ from app.models.purchase_model import PurchaseMaster
 from app.models.inventory_model import FinishedGoodsStock
 from app.models.manufacturing_entry_model import ManufacturingEntry
 from app.models.expenses_model import DailyExpense # Ensure this is imported
+from app.models.staff_model import Employee, Attendance, StaffTransaction, SalaryPayment
 from sqlalchemy import extract
 
 router = APIRouter(tags=["Dashboard"])
@@ -37,14 +38,29 @@ def get_dashboard_summary(
     payable = db.query(func.sum(Partner.current_balance))\
         .filter(Partner.profile_id == pid, Partner.partner_type == "SUPPLIER").scalar() or 0
 
- 
+    # --- NEW: STAFF FINANCIALS ---
+    # 1. Unsettled Advances (Money given to staff but not yet recovered)
+    unsettled_advances = db.query(func.sum(StaffTransaction.amount)).filter(
+        StaffTransaction.profile_id == pid,
+        StaffTransaction.transaction_type == "ADVANCE",
+        StaffTransaction.is_settled == False
+    ).scalar() or 0
+
+    # 2. Accrued Salaries (Attendance recorded this month but not yet paid in a settlement)
+    # We filter attendance_date for the current month to show current liability
+    accrued_salaries = db.query(func.sum(Attendance.daily_amount)).filter(
+        Attendance.profile_id == pid,
+        extract('year', Attendance.attendance_date) == now.year,
+        extract('month', Attendance.attendance_date) == now.month
+    ).scalar() or 0
+
+    # --- EXPENSES ---
     monthly_expenses = db.query(func.sum(DailyExpense.amount)).filter(
         DailyExpense.profile_id == pid,
         extract('year', DailyExpense.expense_date) == now.year,
         extract('month', DailyExpense.expense_date) == now.month
     ).scalar() or 0
 
-    # Categorized Expenses for the current month
     category_summary = db.query(
         DailyExpense.category,
         func.sum(DailyExpense.amount).label("total")
@@ -54,11 +70,14 @@ def get_dashboard_summary(
         extract('month', DailyExpense.expense_date) == now.month
     ).group_by(DailyExpense.category).all()
 
-    # Convert to a list of dictionaries for JSON
     expense_breakdown = [
         {"category": c.category or "Other", "amount": float(c.total)} 
         for c in category_summary
     ]
+
+    # Inject Staff Salaries into breakdown for the Donut Chart
+    if accrued_salaries > 0:
+        expense_breakdown.append({"category": "STAFF WAGES", "amount": float(accrued_salaries)})
     
     overdue_receivable = db.query(func.sum(SalesMaster.grand_total))\
         .filter(SalesMaster.profile_id == pid, SalesMaster.invoice_date <= thirty_days_ago)\
@@ -71,12 +90,14 @@ def get_dashboard_summary(
     count_yesterday = db.query(func.count(SalesMaster.id))\
         .filter(SalesMaster.profile_id == pid, SalesMaster.invoice_date == yesterday).scalar() or 0
     
+ 
     top_customers = db.query(
+        Partner.id, # Added ID
         Partner.name, 
         func.sum(SalesMaster.grand_total).label("total_spend")
     ).join(SalesMaster, SalesMaster.partner_id == Partner.id)\
      .filter(SalesMaster.profile_id == pid, SalesMaster.invoice_date >= thirty_days_ago)\
-     .group_by(Partner.name)\
+     .group_by(Partner.id, Partner.name)\
      .order_by(text("total_spend DESC")).limit(5).all()
 
     # --- 3. OPERATIONAL PULSE ---
@@ -103,9 +124,13 @@ def get_dashboard_summary(
     gap_data = [{"date": d, "prod": v["prod"], "sales": v["sales"]} for d, v in sorted_pulse]
 
     # --- 4. RECENT PURCHASES ---
-    recent_purchases = db.query(PurchaseMaster)\
-        .filter(PurchaseMaster.profile_id == pid)\
-        .order_by(PurchaseMaster.bill_date.desc()).limit(5).all()
+    recent_purchases = db.query(
+        PurchaseMaster,
+        Partner.name.label("partner_name"),
+        Partner.id.label("partner_id")
+    ).join(Partner, PurchaseMaster.partner_id == Partner.id)\
+     .filter(PurchaseMaster.profile_id == pid)\
+     .order_by(PurchaseMaster.bill_date.desc()).limit(5).all()
 
     # --- 5. STOCK & ALERTS ---
     all_stock = db.query(FinishedGoodsStock).filter(FinishedGoodsStock.profile_id == pid).all()
@@ -114,19 +139,31 @@ def get_dashboard_summary(
         for s in all_stock if (s.total_boxes_in_hand or 0) < 10
     ]
 
+    # FINAL CALCULATIONS
+    total_receivable = float(receivable or 0)
+    total_payable = float(payable or 0)
+    total_expenses = float(monthly_expenses or 0) + float(accrued_salaries or 0)
+    staff_advances = float(unsettled_advances or 0)
+    
+    # Net Balance now accounts for pending wages and advances out
+    #net_balance = total_receivable - (total_payable + total_expenses + float(unsettled_advances or 0))
+    net_balance = (total_receivable + staff_advances) - (total_payable + total_expenses)
+
     return {
         "finance": {
-            "receivable": round(float(receivable or 0), 2),
-            "payable": round(float(payable or 0), 2),
-            "monthly_expenses": round(float(monthly_expenses or 0), 2),
+            "receivable": round(total_receivable, 2),
+            "payable": round(total_payable, 2),
+            "monthly_expenses": round(total_expenses, 2),
+            "unsettled_advances": round(float(unsettled_advances or 0), 2),
+            "accrued_salaries": round(float(accrued_salaries or 0), 2),
             "expense_breakdown": expense_breakdown,
-            "net_balance": round(float(receivable or 0) - (float(payable or 0) + float(monthly_expenses or 0)), 2),
+            "net_balance": round(net_balance, 2),
             "overdue_30_days": round(float(overdue_receivable or 0), 2),
         },
         "growth": {
             "today_count": int(count_today),
             "yesterday_count": int(count_yesterday),
-            "top_customers": [{"name": c.name, "amount": float(c.total_spend or 0)} for c in top_customers]
+            "top_customers": [{"id": str(c.id), "name": c.name, "amount": float(c.total_spend or 0)} for c in top_customers]
         },
         "pulse": {
             "gap_data": gap_data,
@@ -138,7 +175,12 @@ def get_dashboard_summary(
             for s in all_stock
         ],
         "recent_purchases": [
-            {"bill": p.bill_number, "date": str(p.bill_date), "amount": float(p.final_amount or 0)} 
+            {   "id": str(p.partner_id), 
+                "partner_name": p.partner_name, 
+                "bill": p.PurchaseMaster.bill_number, 
+                "date": str(p.PurchaseMaster.bill_date), 
+                "amount": float(p.PurchaseMaster.final_amount or 0)
+            } 
             for p in recent_purchases
         ]
     }

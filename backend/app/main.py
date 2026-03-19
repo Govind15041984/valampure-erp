@@ -14,6 +14,7 @@ from app.api.sales_router import router as sales_router
 from app.api.payments_router import router as payment_router
 from app.api.dashboard_router import router as dashboard_router
 from app.api.expenses_router import router as expenses_router
+from app.api.staff_router import router as staff_router
 from app.services.minio_service import init_minio
 
 
@@ -40,6 +41,7 @@ app.include_router(sales_router, prefix="/sales")
 app.include_router(payment_router, prefix="/payments")
 app.include_router(dashboard_router, prefix="/dashboard")
 app.include_router(expenses_router, prefix="/expenses")
+app.include_router(staff_router, prefix="/staff-salary")
 
 
 @app.get("/health")
