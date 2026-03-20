@@ -119,6 +119,7 @@ def get_sale_detail(
         "invoice_no": sale.invoice_number, 
         "invoice_date": sale.invoice_date.strftime("%d-%m-%Y"),
         "partner_name": sale.partner.name if hasattr(sale, 'partner') else "Unknown",
+        "partner_gstin": sale.partner.gstin if hasattr(sale, 'partner') else "",
         "taxable_value": float(sale.total_taxable_value), 
         "sgst": float(sale.sgst_amount), 
         "cgst": float(sale.cgst_amount), 
@@ -128,8 +129,10 @@ def get_sale_detail(
         "items": [
             {
                 "description": item.description,
-                "size": item.size_mm, 
+                "size": item.size_mm,
+                "hsn": getattr(item, 'hsn_code', '60'),
                 "boxes": float(item.box_count) if item.box_count else 0,
+                "mts": float(item.mts_count) if item.mts_count else 0,
                 "total_qty": float(item.total_qty),
                 "rate": float(item.rate),
                 "amount": float(item.line_total) 

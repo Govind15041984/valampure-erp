@@ -1,5 +1,4 @@
 import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:valampure_app/api/manufacturing_api.dart';
@@ -32,6 +31,10 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
   Map<String, dynamic>? _selectedBuyer;
   bool _isSaving = false;
 
+  // NEW: State for tracking saved invoice
+  String? _savedSaleId;
+  bool _isSuccessfullySaved = false;
+
   final TextEditingController _invoiceNoController = TextEditingController();
   final TextEditingController _orderNoController = TextEditingController();
   DateTime _invoiceDate = DateTime.now();
@@ -54,8 +57,6 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
       final List<dynamic> buyerResponse = await PartnersApi.getPartners(
         'BUYER',
       );
-
-      // FETCH STOCK ITEMS
       final stockData = await ManufacturingApi.getCurrentStock();
       final nextInv = await SalesApi.getNextInvoiceNumber();
 
@@ -63,8 +64,6 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
         _myProfile = profile;
         _buyers = List<Map<String, dynamic>>.from(buyerResponse);
         _stockItems = List<Map<String, dynamic>>.from(stockData);
-
-        // Create strings like "15 MM - WHITE ELASTIC" for the dropdown
         _displaySuggestions = _stockItems
             .map((s) => "${s['size_mm']} MM ${s['description']}".toUpperCase())
             .toList();
@@ -87,133 +86,171 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
   double get _tax => _isGstInvoice ? (_subTotal * 0.05) : 0.0;
   double get _grandTotal => (_subTotal + _tax).roundToDouble();
 
-  // PREVIEW MODAL (The Mental Model: Draft -> Verify -> Commit)
+  // PREVIEW MODAL
   void _showPreviewModal() {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        height: MediaQuery.of(context).size.height * 0.85,
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  "Invoice Preview",
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close),
-                ),
-              ],
-            ),
-            const Divider(),
-            Expanded(
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _previewText(
-                      "Consignee",
-                      _selectedBuyer?['name'] ?? "Not Selected",
-                    ),
-                    _previewText("Invoice No", _invoiceNoController.text),
-                    _previewText(
-                      "Date",
-                      DateFormat('dd-MM-yyyy').format(_invoiceDate),
-                    ),
-                    const SizedBox(height: 15),
-                    const Text(
-                      "ITEMS",
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
-                        color: Colors.grey,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => Container(
+          height: MediaQuery.of(context).size.height * 0.85,
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    "Invoice Preview",
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+              const Divider(),
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _previewText(
+                        "Consignee",
+                        _selectedBuyer?['name'] ?? "Not Selected",
                       ),
-                    ),
-                    const Divider(),
-                    ..._items.map(
-                      (item) => Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Expanded(
-                              child: Text(
-                                "${item.sizeMm} MM ${item.description}",
-                                style: const TextStyle(fontSize: 13),
-                              ),
-                            ),
-                            Text(
-                              "${item.boxes * item.mts} Mts x ₹${item.rate}",
-                            ),
-                          ],
+                      _previewText("Invoice No", _invoiceNoController.text),
+                      _previewText(
+                        "Date",
+                        DateFormat('dd-MM-yyyy').format(_invoiceDate),
+                      ),
+                      const SizedBox(height: 15),
+                      const Text(
+                        "ITEMS",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                          color: Colors.grey,
                         ),
                       ),
-                    ),
-                    const Divider(),
-                    _rowVal(
-                      "Total Boxes",
-                      _totalBoxes.toDouble(),
-                      isCurrency: false,
-                    ),
-                    _rowVal("Taxable Amount", _subTotal),
-                    if (_isGstInvoice) _rowVal("GST (5%)", _tax),
-                    const Divider(),
-                    _rowVal("GRAND TOTAL", _grandTotal, isBold: true),
-                  ],
+                      const Divider(),
+                      ..._items.map(
+                        (item) => Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  "${item.sizeMm} MM ${item.description}",
+                                  style: const TextStyle(fontSize: 13),
+                                ),
+                              ),
+                              Text(
+                                "${item.boxes * item.mts} Mts x ₹${item.rate}",
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const Divider(),
+                      _rowVal(
+                        "Total Boxes",
+                        _totalBoxes.toDouble(),
+                        isCurrency: false,
+                      ),
+                      _rowVal("Taxable Amount", _subTotal),
+                      if (_isGstInvoice) _rowVal("GST (5%)", _tax),
+                      const Divider(),
+                      _rowVal("GRAND TOTAL", _grandTotal, isBold: true),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  foregroundColor: Colors.white,
-                ),
-                onPressed: () {
-                  Navigator.pop(context);
-                  _saveInvoiceToDatabase();
-                },
-                child: const Text(
-                  "CONFIRM & SAVE INVOICE",
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
+              const SizedBox(height: 10),
+
+              // DYNAMIC ACTION BUTTONS
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: _isSuccessfullySaved
+                    ? Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.primary,
+                                foregroundColor: Colors.white,
+                              ),
+                              onPressed: () async {
+                                // 1. Fetch official record by ID
+                                final saleData = await SalesApi.getSaleDetails(
+                                  _savedSaleId!,
+                                );
+                                // 2. Generate PDF using official record
+                                await _printInvoice(saleData);
+                              },
+                              icon: const Icon(Icons.print),
+                              label: const Text("PRINT INVOICE"),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.grey[200],
+                              foregroundColor: Colors.black,
+                            ),
+                            onPressed: () {
+                              Navigator.pop(context); // Close modal
+                              Navigator.pop(context); // Exit entry screen
+                            },
+                            child: const Text("DONE"),
+                          ),
+                        ],
+                      )
+                    : ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                        ),
+                        onPressed: () async {
+                          await _saveInvoiceToDatabase();
+                          setModalState(() {}); // Refresh buttons inside modal
+                        },
+                        child: _isSaving
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(
+                                  color: Colors.white,
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Text(
+                                "CONFIRM & SAVE INVOICE",
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                      ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 
   Future<void> _saveInvoiceToDatabase() async {
-    // Guard Clause 1: Basic validation
-    if (_selectedBuyer == null || _items.isEmpty) return;
-
-    // Guard Clause 2: Profile validation (Required for SQLAlchemy NOT NULL constraint)
-    if (_myProfile?['id'] == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Error: Profile data not loaded yet.")),
-      );
-      return;
-    }
+    if (_selectedBuyer == null || _items.isEmpty || _myProfile == null) return;
 
     setState(() => _isSaving = true);
 
     try {
-      // 1. PREPARE PAYLOAD
       final List<Map<String, dynamic>> details = _items.map((item) {
         double totalQty = item.boxes * item.mts;
         return {
@@ -229,8 +266,7 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
       }).toList();
 
       final Map<String, dynamic> payload = {
-        "profile_id":
-            _myProfile!['id'], // Forced unwrap safe because of Guard Clause 2
+        "profile_id": _myProfile!['id'],
         "partner_id": _selectedBuyer!['id'],
         "invoice_number": _invoiceNoController.text,
         "invoice_date": _invoiceDate.toIso8601String().split('T')[0],
@@ -244,61 +280,73 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
         "items": details,
       };
 
-      // 2. STEP 1: ATTEMPT DATABASE SAVE
-      final bool success = await SalesApi.createInvoice(payload);
+      // Ensure your API returns the Map with {'id': ...}
+      final dynamic response = await SalesApi.createInvoice(payload);
 
-      if (success) {
-        // 3. STEP 2: ONLY TRIGGER PDF IF DB RETURNED SUCCESS
-        await PdfService.generateAndPrintInvoice(
-          invoiceNo: _invoiceNoController.text,
-          orderNo: _orderNoController.text,
-          buyerName: _selectedBuyer!['name'],
-          items: _items,
-          subTotal: _subTotal,
-          tax: _tax,
-          grandTotal: _grandTotal,
-          companyDetails: {
-            'name': 'Valampure Elastics',
-            'gstin': '33AACFV9863A2Z6',
-            'address': 'Tiruppur - 641 665',
-          },
-          bankDetails: {
-            'bankName': 'ICICI BANK',
-            'accountNo': '410505001141',
-            'ifsc': 'ICIC0004105',
-          },
-        );
+      if (response != null && response['id'] != null) {
+        setState(() {
+          _savedSaleId = response['id'].toString();
+          _isSuccessfullySaved = true;
+        });
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Success: Recorded in Ledger & PDF Generated!"),
-          ),
-        );
-
-        Navigator.pop(context); // Go back after printing is finished
-      } else {
-        // IF SUCCESS IS FALSE, PDF IS NEVER REACHED
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              "DB Error: Failed to save invoice. Try a different Invoice No.",
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Invoice Recorded Successfully!"),
+              backgroundColor: Colors.green,
             ),
-            backgroundColor: Colors.red,
-          ),
-        );
+          );
+        }
       }
     } catch (e) {
-      // CATCHES NETWORK ERRORS, TIMEOUTS, OR CRASHES
-      debugPrint("Final Save Error: $e");
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Connection Error: $e"),
-          backgroundColor: Colors.red,
-        ),
-      );
+      debugPrint("Save Error: $e");
     } finally {
-      setState(() => _isSaving = false);
+      if (mounted) setState(() => _isSaving = false);
     }
+  }
+
+  // UNIFIED PRINT HELPER (Mirroring SalesDetailView logic)
+  Future<void> _printInvoice(Map<String, dynamic> sale) async {
+    if (_myProfile == null) return;
+
+    final List<Map<String, dynamic>> invoiceItems =
+        (sale['items'] as List<dynamic>? ?? []).map((e) {
+          final size = e['size'] ?? e['size_mm'] ?? '';
+          final desc = e['description'] ?? '';
+          return {
+            'description': "$size MM $desc".toUpperCase(),
+            'hsn': e['hsn'] ?? e['hsn_code'] ?? '60',
+            'boxes': (e['boxes'] ?? e['box_count'] ?? 0).toDouble(),
+            'mts': (e['mts'] ?? e['mts_count'] ?? 0.0).toDouble(),
+            'rate': (e['rate'] ?? 0.0).toDouble(),
+          };
+        }).toList();
+
+    await PdfService.generateAndPrintInvoice(
+      invoiceNo: sale['invoice_no'] ?? '',
+      orderNo: sale['order_no'] ?? '-',
+      buyerName: sale['partner_name'] ?? '',
+      buyerGST: sale['partner_gstin'] ?? 'N/A',
+      buyerState: 'Tamil Nadu',
+      buyerStateCode: '33',
+      items: invoiceItems,
+      subTotal: (sale['taxable_value'] ?? 0).toDouble(),
+      tax: ((sale['sgst'] ?? 0) + (sale['cgst'] ?? 0)).toDouble(),
+      grandTotal: (sale['grand_total'] ?? 0).toDouble(),
+      company: {
+        'name': _myProfile!['company_name'] ?? '',
+        'gstin': _myProfile!['gstin'] ?? '',
+        'address1': _myProfile!['address1'] ?? '',
+        'address2': '${_myProfile!['address'] ?? ''}',
+        'stateCode': '33',
+        'areaCode': '124',
+      },
+      bank: {
+        'bankName': _myProfile!['bank_name'] ?? '',
+        'accountNo': _myProfile!['account_no'] ?? '',
+        'ifsc': _myProfile!['ifsc_code'] ?? '',
+      },
+    );
   }
 
   @override
@@ -308,27 +356,22 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
       appBar: AppBar(
         title: const Text(
           "New Sales Invoice",
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 18,
+            color: Colors.white,
+          ),
         ),
         backgroundColor: AppColors.primary,
+        iconTheme: const IconThemeData(color: Colors.white),
         elevation: 0,
         actions: [
           IconButton(
             tooltip: "View Sales History",
-            icon: const Icon(Icons.receipt_long_outlined, color: Colors.white),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const SalesListScreen(),
-                ),
-              );
-            },
-          ),
-          Center(
-            child: Text(
-              _isGstInvoice ? "GST  " : "NON-GST  ",
-              style: const TextStyle(fontSize: 12, color: Colors.white),
+            icon: const Icon(Icons.receipt_long_outlined),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const SalesListScreen()),
             ),
           ),
           Switch(
@@ -399,7 +442,6 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
                         (s) => s.contains(textValue.text.toUpperCase()),
                       ),
                 onSelected: (selection) {
-                  // 1. Find the original stock object from the list
                   final matchedStock = _stockItems.firstWhere(
                     (s) =>
                         "${s['size_mm']} MM ${s['description']}"
@@ -407,25 +449,18 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
                         selection,
                     orElse: () => {},
                   );
-
                   if (matchedStock.isNotEmpty) {
                     setState(() {
-                      // 2. Set the separate fields for the backend match
                       item.description = matchedStock['description'] ?? "";
                       item.sizeMm = matchedStock['size_mm']?.toString() ?? "";
-
-                      // Optional: If your stock table has a default rate, you can set it here
-                      // item.rate = (matchedStock['default_rate'] ?? 0.0).toDouble();
                     });
                   }
                 },
                 fieldViewBuilder: (context, controller, focus, onSubmitted) {
-                  // This keeps the text in the box even if you click away
                   if (item.description.isNotEmpty && controller.text.isEmpty) {
                     controller.text = "${item.sizeMm} MM ${item.description}"
                         .toUpperCase();
                   }
-
                   return TextField(
                     controller: controller,
                     focusNode: focus,
@@ -524,7 +559,6 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
     padding: const EdgeInsets.symmetric(vertical: 2),
     child: Text("$label: $val", style: const TextStyle(fontSize: 14)),
   );
-
   Widget _tdText(String val, {bool isBold = false, Color? color}) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 2),
     child: Text(
@@ -537,7 +571,6 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
       textAlign: TextAlign.right,
     ),
   );
-
   Widget _rowVal(
     String label,
     double val, {
@@ -575,7 +608,6 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 9),
     ),
   );
-
   Widget _tdInput({
     required Function(String) onChanged,
     String hint = "",
@@ -637,7 +669,10 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
                   ),
                 )
                 .toList(),
-            onChanged: (val) => setState(() => _selectedBuyer = val),
+            onChanged: (val) => setState(() {
+              _selectedBuyer = val;
+              _isSuccessfullySaved = false;
+            }),
           ),
           const SizedBox(height: 10),
           Row(
@@ -688,13 +723,11 @@ class _SalesEntryScreenState extends State<SalesEntryScreen> {
       ],
     ),
   );
-
   Widget _buildAddRowAction() => TextButton.icon(
     onPressed: () => setState(() => _items.add(SalesItemRow())),
     icon: const Icon(Icons.add, size: 16),
     label: const Text("ADD LINE"),
   );
-
   Future<void> _selectDate(BuildContext context) async {
     final DateTime? picked = await showDatePicker(
       context: context,

@@ -11,12 +11,10 @@ class MobileScreen extends StatefulWidget {
 
 class _MobileScreenState extends State<MobileScreen> {
   final TextEditingController _mobileController = TextEditingController();
-  bool _isLoading = false; // Added to show progress during API check
+  bool _isLoading = false;
 
-  // This handles your logic: Check existence -> Route accordingly
   Future<void> _handleContinue() async {
     String mobile = _mobileController.text.trim();
-
     if (mobile.length != 10) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -29,15 +27,11 @@ class _MobileScreenState extends State<MobileScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // 1. API Call to check if user exists in 'valampure' schema
       bool exists = await ProfilesApi.checkUser(mobile);
-
       if (mounted) {
         if (exists) {
-          // Returning User -> Go to PIN Screen
           Navigator.pushNamed(context, '/pin', arguments: mobile);
         } else {
-          // New Business -> Go to Signup Screen
           Navigator.pushNamed(context, '/signup', arguments: mobile);
         }
       }
@@ -58,60 +52,111 @@ class _MobileScreenState extends State<MobileScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: Colors.white, // Standard white background
       body: Center(
-        child: Container(
-          constraints: const BoxConstraints(maxWidth: 400),
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text(
-                "Valampure ERP",
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.primary,
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                "Enter your mobile number to continue",
-                textAlign: TextAlign.center,
-                style: TextStyle(color: AppColors.textSecondary),
-              ),
-              const SizedBox(height: 32),
-              TextField(
-                controller: _mobileController,
-                keyboardType: TextInputType.phone,
-                // Enabled/Disabled based on loading state
-                enabled: !_isLoading,
-                decoration: const InputDecoration(
-                  labelText: "Mobile Number",
-                  prefixText: "+91 ",
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 24),
-              _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : ElevatedButton(
-                      onPressed: _handleContinue, // Trigger the check
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.accent,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                      ),
-                      child: const Text(
-                        "CONTINUE",
+        child: SingleChildScrollView(
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 400),
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // LOGO + HEADER INLINE (Row layout)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Image.asset(
+                      'assets/images/Valampure-logo.jpeg',
+                      width: 60,
+                      height: 60,
+                      fit: BoxFit.contain,
+                    ),
+                    const SizedBox(width: 12),
+                    // Wrap the text in Expanded to prevent the "14 pixel overflow"
+                    Expanded(
+                      child: Text(
+                        "Valampure Elastics",
+                        overflow: TextOverflow
+                            .ellipsis, // Adds "..." if it still doesn't fit
                         style: TextStyle(
-                          color: Colors.white,
+                          fontSize: 32, // Slightly reduced to help fit better
                           fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                          fontFamily: 'Valampure',
                         ),
                       ),
                     ),
-            ],
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  "Enter your mobile number to continue",
+                  textAlign: TextAlign.center, // Center the descriptive text
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+                ),
+                const SizedBox(height: 48), // Space before input
+                // INPUT FIELD
+                TextField(
+                  controller: _mobileController,
+                  keyboardType: TextInputType.phone,
+                  enabled: !_isLoading,
+                  maxLength: 10,
+                  decoration: InputDecoration(
+                    counterText: "",
+                    labelText: "Mobile Number",
+                    prefixText: "+91 ",
+                    prefixStyle: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    filled: true,
+                    fillColor: Colors.grey.shade50,
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                // GREY BUTTON
+                SizedBox(
+                  width: double.infinity,
+                  height: 55,
+                  child: _isLoading
+                      ? const Center(child: CircularProgressIndicator())
+                      : ElevatedButton(
+                          onPressed: _handleContinue,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors
+                                .grey
+                                .shade800, // Matching the requested grey
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 0,
+                          ),
+                          child: const Text(
+                            "CONTINUE",
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1.1,
+                            ),
+                          ),
+                        ),
+                ),
+                const SizedBox(height: 40), // Space before version
+                const Center(
+                  child: Text(
+                    "v1.0.26",
+                    style: TextStyle(color: Colors.grey, fontSize: 10),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

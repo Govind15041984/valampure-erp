@@ -20,6 +20,7 @@ class Profile(Base):
     # Tax & Bank Details
     gstin = Column(String)
     address = Column(Text)
+    address1 = Column(String)
     state_code = Column(String, default="33")
     area_code = Column(String)
     bank_name = Column(String)

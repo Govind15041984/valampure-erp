@@ -3,9 +3,9 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter/services.dart';
+import 'dart:math';
 
 class PdfService {
-
   static Future<void> generateAndPrintInvoice({
     required String invoiceNo,
     required String orderNo,
@@ -20,36 +20,42 @@ class PdfService {
     required Map<String, String> company,
     required Map<String, String> bank,
   }) async {
-
     final pdf = pw.Document();
     final fontData = await rootBundle.load("assets/fonts/valampure.ttf");
     final headerFont = pw.Font.ttf(fontData);
     final logoImage = pw.MemoryImage(
-      (await rootBundle.load('assets/images/Valampure-logo.jpeg')).buffer.asUint8List(),
+      (await rootBundle.load(
+        'assets/images/Valampure-logo.jpeg',
+      )).buffer.asUint8List(),
     );
 
     pdf.addPage(
       pw.Page(
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.all(10),
-        build: (context)  {
-
+        build: (context) {
           double totalMts = 0;
           for (var i in items) {
-            totalMts += (i.boxes * i.mts);
+            // Using bracket notation [] for Maps
+            double boxes = double.tryParse(i['boxes']?.toString() ?? '0') ?? 0;
+            double mts = double.tryParse(i['mts']?.toString() ?? '0') ?? 0;
+            totalMts += (boxes * mts);
           }
-
 
           return pw.Container(
             decoration: pw.BoxDecoration(border: pw.Border.all(width: 1)),
             child: pw.Column(
               children: [
-
                 _header(company, invoiceNo, headerFont, logoImage),
 
                 _gstSection(company, orderNo, invoiceNo),
 
-                _consigneeSection(buyerName, buyerGST, buyerState, buyerStateCode),
+                _consigneeSection(
+                  buyerName,
+                  buyerGST,
+                  buyerState,
+                  buyerStateCode,
+                ),
 
                 _itemsTable(items, totalMts),
 
@@ -59,10 +65,10 @@ class PdfService {
 
                 _conditions(),
 
-                pw.Spacer(),
+                //pw.Spacer(),
+                pw.SizedBox(height: 10),
 
                 _bottomSign(company),
-
               ],
             ),
           );
@@ -70,28 +76,26 @@ class PdfService {
       ),
     );
 
-    await Printing.layoutPdf(
-      onLayout: (format) async => pdf.save(),
-    );
+    await Printing.layoutPdf(onLayout: (format) async => pdf.save());
   }
 
   /// HEADER
-  static pw.Widget _header(Map<String, String> c, String invoiceNo, pw.Font headerFont, pw.MemoryImage logoImage) {
-
+  static pw.Widget _header(
+    Map<String, String> c,
+    String invoiceNo,
+    pw.Font headerFont,
+    pw.MemoryImage logoImage,
+  ) {
     return pw.Container(
       padding: const pw.EdgeInsets.all(6),
       child: pw.Row(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
-
           pw.Container(
             width: 70,
             height: 70,
             child: pw.Center(
-              child: pw.Image(
-                logoImage,
-                fit: pw.BoxFit.contain,
-              ),
+              child: pw.Image(logoImage, fit: pw.BoxFit.contain),
             ),
           ),
 
@@ -101,12 +105,11 @@ class PdfService {
             child: pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.center,
               children: [
-
                 pw.Text(
                   c['name'] ?? "VALAMPURE ELASTICS",
                   style: pw.TextStyle(
                     font: headerFont,
-                    fontSize: 30,
+                    fontSize: 40,
                     fontWeight: pw.FontWeight.bold,
                   ),
                 ),
@@ -116,15 +119,9 @@ class PdfService {
                   style: pw.TextStyle(fontSize: 12),
                 ),
 
-                pw.Text(
-                  c['address1'] ?? "",
-                  style: pw.TextStyle(fontSize: 10),
-                ),
+                pw.Text(c['address1'] ?? "", style: pw.TextStyle(fontSize: 10)),
 
-                pw.Text(
-                  c['address2'] ?? "",
-                  style: pw.TextStyle(fontSize: 10),
-                ),
+                pw.Text(c['address2'] ?? "", style: pw.TextStyle(fontSize: 10)),
               ],
             ),
           ),
@@ -133,17 +130,16 @@ class PdfService {
             width: 120,
             child: pw.Column(
               children: [
-
                 pw.Container(
                   color: PdfColors.black,
                   width: double.infinity,
-                  padding: const pw.EdgeInsets.symmetric(vertical:4),
+                  padding: const pw.EdgeInsets.symmetric(vertical: 4),
                   child: pw.Center(
                     child: pw.Text(
                       "TAX INVOICE",
                       style: pw.TextStyle(
-                          color: PdfColors.white,
-                          fontWeight: pw.FontWeight.bold
+                        color: PdfColors.white,
+                        fontWeight: pw.FontWeight.bold,
                       ),
                     ),
                   ),
@@ -151,24 +147,19 @@ class PdfService {
 
                 pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Text("S.No."),
-                    pw.Text(invoiceNo)
-                  ],
+                  children: [pw.Text("S.No."), pw.Text(invoiceNo)],
                 ),
 
                 pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
                     pw.Text("Date"),
-                    pw.Text(DateFormat("dd-MM-yyyy").format(DateTime.now()))
+                    pw.Text(DateFormat("dd-MM-yyyy").format(DateTime.now())),
                   ],
                 ),
-
               ],
             ),
-          )
-
+          ),
         ],
       ),
     );
@@ -176,10 +167,10 @@ class PdfService {
 
   /// GST + ORDER SECTION
   static pw.Widget _gstSection(
-      Map<String, String> company,
-      String orderNo,
-      String invoiceNo) {
-
+    Map<String, String> company,
+    String orderNo,
+    String invoiceNo,
+  ) {
     return pw.Container(
       height: 60,
       decoration: pw.BoxDecoration(
@@ -190,7 +181,6 @@ class PdfService {
       ),
       child: pw.Row(
         children: [
-
           pw.Expanded(
             flex: 6,
             child: pw.Padding(
@@ -199,11 +189,9 @@ class PdfService {
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 mainAxisAlignment: pw.MainAxisAlignment.center,
                 children: [
-
                   pw.Text("GSTIN : ${company['gstin'] ?? ''}"),
                   pw.Text("State Code : ${company['stateCode'] ?? ''}"),
                   pw.Text("Area Code : ${company['areaCode'] ?? ''}"),
-
                 ],
               ),
             ),
@@ -215,33 +203,34 @@ class PdfService {
             flex: 4,
             child: pw.Column(
               children: [
-
                 _infoRow("ORDER NO", orderNo),
                 _infoRow("INVOICE NO", invoiceNo),
-                _infoRow("DATE", DateFormat("dd-MM-yyyy").format(DateTime.now())),
-
+                _infoRow(
+                  "DATE",
+                  DateFormat("dd-MM-yyyy").format(DateTime.now()),
+                ),
               ],
             ),
           ),
-
         ],
       ),
     );
   }
 
   static pw.Widget _infoRow(String l, String v) {
-
     return pw.Container(
       height: 20,
       decoration: pw.BoxDecoration(
-          border: pw.Border(bottom: pw.BorderSide(width: 1))),
+        border: pw.Border(bottom: pw.BorderSide(width: 1)),
+      ),
       child: pw.Row(
         children: [
-
           pw.Expanded(
-              child: pw.Padding(
-                  padding: const pw.EdgeInsets.all(4),
-                  child: pw.Text(l))),
+            child: pw.Padding(
+              padding: const pw.EdgeInsets.all(4),
+              child: pw.Text(l),
+            ),
+          ),
 
           pw.Container(width: 1, color: PdfColors.black),
 
@@ -253,7 +242,6 @@ class PdfService {
               ),
             ),
           ),
-
         ],
       ),
     );
@@ -261,16 +249,15 @@ class PdfService {
 
   /// CONSIGNEE + SEAL
   static pw.Widget _consigneeSection(
-      String buyer,
-      String gst,
-      String state,
-      String code) {
-
+    String buyer,
+    String gst,
+    String state,
+    String code,
+  ) {
     return pw.Container(
       height: 90,
       child: pw.Row(
         children: [
-
           pw.Expanded(
             flex: 6,
             child: pw.Container(
@@ -281,12 +268,12 @@ class PdfService {
               child: pw.Column(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
-
                   pw.Text(
                     "Name & Address of the Consignee",
                     style: pw.TextStyle(
-                        fontWeight: pw.FontWeight.bold,
-                        fontSize: 9),
+                      fontWeight: pw.FontWeight.bold,
+                      fontSize: 9,
+                    ),
                   ),
 
                   pw.SizedBox(height: 5),
@@ -295,57 +282,137 @@ class PdfService {
                   pw.Text("GSTIN : $gst"),
                   pw.Text("State : $state"),
                   pw.Text("Code : $code"),
-
                 ],
               ),
             ),
           ),
 
-          pw.Expanded(
-            flex: 4,
-            child: pw.Center(child: _sealSection()),
-          ),
-
+          pw.Expanded(flex: 4, child: pw.Center(child: _sealSection())),
         ],
       ),
     );
   }
 
   static pw.Widget _sealSection() {
+    // Increased size and adjusted thickness for better proportion
+    const double stampSize = 75.0;
+    const double ringThickness = 16.0;
 
-    return pw.Container(
-      width: 70,
-      height: 70,
-      decoration: pw.BoxDecoration(
+    return pw.Center(
+      child: pw.Container(
+        width: stampSize,
+        height: stampSize,
+        decoration: const pw.BoxDecoration(
           shape: pw.BoxShape.circle,
-          border: pw.Border.all()),
-      child: pw.Center(
-        child: pw.Text(
-          "VALAMPURE\nELASTICS",
-          textAlign: pw.TextAlign.center,
-          style: pw.TextStyle(fontSize: 7),
+          color: PdfColors.black,
+        ),
+        child: pw.Stack(
+          alignment: pw.Alignment.center,
+          children: [
+            // CENTER WHITE HOLE
+            pw.Container(
+              width: stampSize - (ringThickness * 2),
+              height: stampSize - (ringThickness * 2),
+              decoration: const pw.BoxDecoration(
+                color: PdfColors.white,
+                shape: pw.BoxShape.circle,
+              ),
+            ),
+
+            // WHITE TEXT - Anti-clockwise
+            ..._getAntiClockwiseText(
+              " VALAMPURE ELASTICS ",
+              // Radius is half-diameter minus half-thickness to center text in the black band
+              radius: (stampSize / 2) - (ringThickness / 2),
+              color: PdfColors.white,
+            ),
+          ],
         ),
       ),
     );
   }
 
+  static List<pw.Widget> _getAntiClockwiseText(
+    String text, {
+    required double radius,
+    required PdfColor color,
+  }) {
+    final List<pw.Widget> widgets = [];
+    final double angleStep = (2 * pi) / text.length;
+
+    for (int i = 0; i < text.length; i++) {
+      // Negative logic for anti-clockwise flow
+      final double angle = -(i * angleStep) - (pi / 2);
+
+      widgets.add(
+        pw.Transform(
+          transform: Matrix4.identity()
+            ..translate(radius * cos(angle), radius * sin(angle))
+            ..rotateZ(angle + (pi / 2)),
+          alignment: pw.Alignment.center,
+          child: pw.Text(
+            text[i],
+            style: pw.TextStyle(
+              color: color,
+              fontSize: 6.5,
+              fontWeight: pw.FontWeight.bold,
+            ),
+          ),
+        ),
+      );
+    }
+    return widgets;
+  }
+
+  static List<pw.Widget> _getCircularText(
+    String text, {
+    required double radius,
+    required PdfColor color,
+  }) {
+    final List<pw.Widget> widgets = [];
+    final double angleStep = (2 * pi) / text.length;
+
+    for (int i = 0; i < text.length; i++) {
+      // We subtract pi/2 to start from the top center
+      final double angle = (i * angleStep) - (pi / 2);
+
+      widgets.add(
+        pw.Transform(
+          transform: Matrix4.identity()
+            ..translate(radius * cos(angle), radius * sin(angle))
+            ..rotateZ(angle + (pi / 2)), // Rotates character to face outward
+          alignment: pw.Alignment.center,
+          child: pw.Text(
+            text[i],
+            style: pw.TextStyle(
+              color: color,
+              fontSize: 6,
+              fontWeight: pw.FontWeight.bold,
+            ),
+          ),
+        ),
+      );
+    }
+    return widgets;
+  }
+
   /// ITEMS TABLE
   static pw.Widget _itemsTable(List items, double totalMts) {
-
     const int maxRows = 8;
     int emptyRows = maxRows - items.length;
 
     List<pw.TableRow> rows = [];
 
+    // Header Row - Exactly as your template
     rows.add(
       pw.TableRow(
         decoration: pw.BoxDecoration(
-            border: pw.Border(bottom: pw.BorderSide())),
+          border: pw.Border(bottom: pw.BorderSide()),
+        ),
         children: [
           _th("S.No."),
           _th("Description of Goods"),
           _th("HSN Code"),
-//          _th("No. & Description of Packages"),
           _th("Box"),
           _th("MTS"),
           _th("Total Qty"),
@@ -355,50 +422,55 @@ class PdfService {
       ),
     );
 
+    // Data Rows - Accessing Map keys correctly
     for (var e in items.asMap().entries) {
-
       final item = e.value;
 
-      double qty = item.boxes * item.mts;
-      double total = qty * item.rate;
+      double boxes = double.tryParse(item['boxes']?.toString() ?? '0') ?? 0;
+      double mts = double.tryParse(item['mts']?.toString() ?? '0') ?? 0;
+      double rate = double.tryParse(item['rate']?.toString() ?? '0') ?? 0;
+
+      double qty = boxes * mts;
+      double total = qty * rate;
 
       rows.add(
         pw.TableRow(
           children: [
             _td("${e.key + 1}"),
-            _td("12 - " + item.description),
-            _td("60"),
-            _td(item.boxes.toString()),
-            _td(item.mts.toString()),
-            _td(qty.toString()),
-            _td(item.rate.toString()),
+            _td(
+              item['description']?.toString() ?? "",
+            ), // Dynamic: No hardcoded prefix
+            _td(item['hsn']?.toString() ?? ""), // Dynamic: No hardcoded HSN
+            _td(boxes.toStringAsFixed(0)),
+            _td(mts.toStringAsFixed(0)),
+            _td(qty.toStringAsFixed(0)),
+            _td(rate.toString()),
             _td(total.toStringAsFixed(2)),
           ],
         ),
       );
     }
 
+    // Empty Rows - Maintains the template look
     for (int i = 0; i < emptyRows; i++) {
       rows.add(
         pw.TableRow(
-          children: List.generate(
-              8,
-                  (index) => pw.Container(height: 20)),
+          children: List.generate(8, (index) => pw.Container(height: 20)),
         ),
       );
     }
 
+    // Total Row
     rows.add(
       pw.TableRow(
-        decoration:
-        pw.BoxDecoration(border: pw.Border(top: pw.BorderSide())),
+        decoration: pw.BoxDecoration(border: pw.Border(top: pw.BorderSide())),
         children: [
           _td(""),
           _td("TOTAL MTS"),
           _td(""),
           _td(""),
           _td(""),
-          _td(totalMts.toString()),
+          _td(totalMts.toStringAsFixed(0)),
           _td(""),
           _td(""),
         ],
@@ -411,75 +483,99 @@ class PdfService {
         right: pw.BorderSide(),
         top: pw.BorderSide(),
         bottom: pw.BorderSide(),
-        verticalInside: pw.BorderSide(),
+        verticalInside: pw.BorderSide(), // Keeps original vertical column lines
       ),
       children: rows,
     );
   }
 
   /// BANK + TOTAL
+  /// BANK + TOTAL SECTION (FIXED & TESTED)
   static pw.Widget _bankAndTotal(
-      Map<String, String> bank,
-      double sub,
-      double tax,
-      double grand) {
-
-    return pw.Column(
+    Map<String, String> bank,
+    double sub,
+    double tax,
+    double grand,
+  ) {
+    return pw.Row(
+      // Removed pw.IntrinsicHeight
+      crossAxisAlignment: pw.CrossAxisAlignment.start, // Align to top
       children: [
-
-        pw.Container(
-          height: 100,
-          child: pw.Row(
-            children: [
-
-              pw.Expanded(
-                flex: 6,
-                child: pw.Padding(
+        // LEFT COLUMN: Bank Details + Amount in Words
+        pw.Expanded(
+          flex: 6,
+          child: pw.Container(
+            // Set a fixed height if you want it to look exactly like the sample
+            height: 100,
+            decoration: pw.BoxDecoration(
+              border: pw.Border(
+                right: pw.BorderSide(width: 1),
+                bottom: pw.BorderSide(width: 1),
+              ),
+            ),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Padding(
                   padding: const pw.EdgeInsets.all(5),
                   child: pw.Column(
                     crossAxisAlignment: pw.CrossAxisAlignment.start,
                     children: [
-
-                      pw.Text("Bank Name : ${bank['bankName']}"),
-                      pw.Text("Ac No : ${bank['accountNo']}"),
-                      pw.Text("IFSC Code : ${bank['ifsc']}"),
-
+                      pw.Text("Bank Name : ${bank['bankName'] ?? ''}"),
+                      pw.Text("Ac No : ${bank['accountNo'] ?? ''}"),
+                      pw.Text("IFSC Code : ${bank['ifsc'] ?? ''}"),
                     ],
                   ),
                 ),
-              ),
-
-              pw.Container(width: 1, color: PdfColors.black),
-
-              pw.Expanded(
-                flex: 4,
-                child: pw.Column(
-                  children: [
-
-                    _totalRow("TOTAL", sub),
-                    _totalRow("SGST 2.5%", tax / 2),
-                    _totalRow("CGST 2.5%", tax / 2),
-                    _totalRow("ROUND OFF", 0),
-                    _totalRow("GRAND TOTAL", grand),
-
-                  ],
+                pw.Spacer(),
+                pw.Container(
+                  width: double.infinity,
+                  decoration: pw.BoxDecoration(
+                    border: pw.Border(top: pw.BorderSide(width: 1)),
+                  ),
+                  padding: const pw.EdgeInsets.all(5),
+                  child: pw.Text(
+                    "RUPEES ${_amountToWords(grand.toInt())} ONLY",
+                    style: pw.TextStyle(
+                      fontWeight: pw.FontWeight.bold,
+                      fontSize: 9,
+                    ),
+                  ),
                 ),
-              ),
-
-            ],
+              ],
+            ),
           ),
         ),
 
-        pw.Divider(),
-
-        _amountWords(grand),
-
+        // RIGHT COLUMN: Tax Summary Table
+        pw.Expanded(
+          flex: 4,
+          child: pw.Container(
+            height: 100, // Matches the left side height
+            decoration: pw.BoxDecoration(
+              border: pw.Border(bottom: pw.BorderSide(width: 1)),
+            ),
+            child: pw.Column(
+              children: [
+                _totalRow("TOTAL", sub),
+                _totalRow("SGST 2.5%", tax / 2),
+                _totalRow("CGST 2.5%", tax / 2),
+                _totalRow("ROUND OFF", 0),
+                pw.Expanded(
+                  child: pw.Container(
+                    alignment: pw.Alignment.bottomCenter,
+                    child: _totalRow("GRAND TOTAL", grand, isBold: true),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ],
     );
   }
 
   static pw.Widget _amountWords(double grand) {
-
     return pw.Container(
       padding: const pw.EdgeInsets.all(5),
       child: pw.Text(
@@ -490,25 +586,47 @@ class PdfService {
   }
 
   static String _amountToWords(int number) {
-
     final units = [
       "",
-      "ONE","TWO","THREE","FOUR","FIVE","SIX","SEVEN","EIGHT","NINE","TEN",
-      "ELEVEN","TWELVE","THIRTEEN","FOURTEEN","FIFTEEN","SIXTEEN",
-      "SEVENTEEN","EIGHTEEN","NINETEEN"
+      "ONE",
+      "TWO",
+      "THREE",
+      "FOUR",
+      "FIVE",
+      "SIX",
+      "SEVEN",
+      "EIGHT",
+      "NINE",
+      "TEN",
+      "ELEVEN",
+      "TWELVE",
+      "THIRTEEN",
+      "FOURTEEN",
+      "FIFTEEN",
+      "SIXTEEN",
+      "SEVENTEEN",
+      "EIGHTEEN",
+      "NINETEEN",
     ];
 
     final tens = [
-      "","","TWENTY","THIRTY","FORTY","FIFTY","SIXTY","SEVENTY","EIGHTY","NINETY"
+      "",
+      "",
+      "TWENTY",
+      "THIRTY",
+      "FORTY",
+      "FIFTY",
+      "SIXTY",
+      "SEVENTY",
+      "EIGHTY",
+      "NINETY",
     ];
 
     String convert(int n) {
-
       if (n < 20) return units[n];
 
       if (n < 100) {
-        return tens[n ~/ 10] +
-            (n % 10 != 0 ? " ${units[n % 10]}" : "");
+        return tens[n ~/ 10] + (n % 10 != 0 ? " ${units[n % 10]}" : "");
       }
 
       if (n < 1000) {
@@ -530,13 +648,10 @@ class PdfService {
   }
 
   static pw.Widget _certificate() {
-
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-
-        pw.Divider(),
-
+        //pw.Divider(),
         pw.Padding(
           padding: const pw.EdgeInsets.all(5),
           child: pw.Text(
@@ -548,21 +663,18 @@ class PdfService {
         pw.Padding(
           padding: const pw.EdgeInsets.symmetric(horizontal: 5),
           child: pw.Text(
-            "Certified that the particulars given above are true and correct and the amount indicated in this document represents the price actually charged by us.",
-            style: pw.TextStyle(fontSize: 8),
+            "Certified that the particular are true and correct and the amount indicated in this document represents the price actually charged by us and there is no additional consideration flowing directly or indirectly from such sales over and above what has been declared.",
+            style: pw.TextStyle(fontSize: 9),
           ),
         ),
-
       ],
     );
   }
 
   static pw.Widget _conditions() {
-
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-
         pw.Divider(),
 
         pw.Padding(
@@ -570,24 +682,19 @@ class PdfService {
           child: pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-
               pw.Text("1. Subject to Tiruppur Jurisdictions."),
               pw.Text("2. We are not responsible for any loss or Damage."),
               pw.Text("3. Goods supplied under firm conditions"),
-
             ],
           ),
         ),
-
       ],
     );
   }
 
   static pw.Widget _bottomSign(Map<String, String> company) {
-
     return pw.Column(
       children: [
-
         pw.Divider(),
 
         pw.Row(
@@ -623,7 +730,6 @@ class PdfService {
             ),
           ],
         ),
-
       ],
     );
   }
@@ -631,31 +737,26 @@ class PdfService {
   static pw.Widget _th(String t) {
     return pw.Padding(
       padding: const pw.EdgeInsets.all(4),
-      child: pw.Text(
-        t,
-        style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
-      ),
+      child: pw.Text(t, style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
     );
   }
 
   static pw.Widget _td(String t) {
-    return pw.Padding(
-      padding: const pw.EdgeInsets.all(4),
-      child: pw.Text(t),
-    );
+    return pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(t));
   }
 
-  static pw.Widget _totalRow(String l, double v) {
-
+  static pw.Widget _totalRow(String l, double v, {bool isBold = false}) {
+    final style = pw.TextStyle(
+      fontWeight: isBold ? pw.FontWeight.bold : pw.FontWeight.normal,
+      fontSize: 10,
+    );
     return pw.Padding(
-      padding: const pw.EdgeInsets.all(3),
+      padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 3),
       child: pw.Row(
         mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
         children: [
-
-          pw.Text(l),
-          pw.Text(v.toStringAsFixed(2)),
-
+          pw.Text(l, style: style),
+          pw.Text(v.toStringAsFixed(2), style: style),
         ],
       ),
     );

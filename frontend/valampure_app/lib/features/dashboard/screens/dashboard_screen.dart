@@ -4,10 +4,13 @@ import '../../../api/dashboard_api.dart';
 import '../../../core/auth_storage.dart';
 import '../../auth/screens/mobile_screen.dart';
 import '../../expenses/screens/expenses_screen.dart';
+import '../../parties/screens/partner_ledger_screen.dart';
 import '../../parties/screens/partners_list_screen.dart';
+import '../../profile/screens/profile_screen.dart';
 import '../../purchase/screens/purchase_entry_screen.dart';
 import '../../sales/screens/sales_entry_screen.dart';
 import '../../manufacturing/screens/production_log_screen.dart';
+import '../../staff/screens/employee_list_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -90,9 +93,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       final finance = data['finance'] ?? {};
 
                       return SingleChildScrollView(
-                        padding: const EdgeInsets.all(
-                          24,
-                        ), // Tighter padding for density
+                        padding: const EdgeInsets.all(24),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -110,7 +111,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
                             const SizedBox(height: 32),
 
-                            // CONTENT HEAVY SECTION: Charts and Stock Side-by-Side on Desktop
                             if (isDesktop)
                               Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -128,7 +128,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                         _buildGapChart(pulse['gap_data'] ?? []),
                                         const SizedBox(height: 32),
                                         _buildSectionHeader(
-                                          "Expense Breakdown by Category",
+                                          "Expense Breakdown (This Month)",
                                         ),
                                         const SizedBox(height: 12),
                                         _buildExpenseBreakdown(
@@ -168,6 +168,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               const SizedBox(height: 12),
                               _buildGapChart(pulse['gap_data'] ?? []),
                               const SizedBox(height: 32),
+                              _buildSectionHeader("Expense Breakdown"),
+                              const SizedBox(height: 12),
+                              _buildExpenseBreakdown(
+                                finance['expense_breakdown'] ?? [],
+                              ),
+                              const SizedBox(height: 32),
                               _buildSectionHeader("Stock in Hand"),
                               const SizedBox(height: 12),
                               _buildStockGrid(data['stock'] ?? [], isDesktop),
@@ -193,61 +199,196 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // --- UPDATED: DENSE DUAL BAR CHART (FIXES MISSING SALES) ---
+  // --- NEW: DONUT CHART EXPENSE BREAKDOWN ---
   Widget _buildExpenseBreakdown(List breakdown) {
     if (breakdown.isEmpty) {
       return _buildEmptyState("No expenses recorded for this month.");
     }
 
+    // 1. Sort the data: Highest amount first
+    List sortedBreakdown = List.from(breakdown);
+    sortedBreakdown.sort(
+      (a, b) => (b['amount'] ?? 0).compareTo(a['amount'] ?? 0),
+    );
+
+    // 2. Calculate total based on sorted data
+    double total = sortedBreakdown.fold(
+      0,
+      (sum, item) => sum + (item['amount'] ?? 0),
+    );
+
+    List<Color> palette = [
+      const Color(0xFF37474F), // Valampuri Navy
+      Colors.orange,
+      Colors.redAccent,
+      Colors.blue,
+      Colors.teal,
+      Colors.purple,
+    ];
+
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.grey.shade200),
       ),
-      child: Wrap(
-        // Using Wrap helps it look good on both mobile and desktop
-        spacing: 20,
-        runSpacing: 10,
-        children: breakdown.map((item) {
-          return SizedBox(
-            width: 150, // Fixed width for a neat grid look
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  item['category'].toString().toUpperCase(),
-                  style: const TextStyle(
-                    fontSize: 10,
-                    color: Colors.grey,
-                    fontWeight: FontWeight.bold,
-                  ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          bool isNarrow = constraints.maxWidth < 400;
+          return Flex(
+            direction: isNarrow ? Axis.vertical : Axis.horizontal,
+            children: [
+              SizedBox(
+                height: 180,
+                width: 180,
+                child: Stack(
+                  children: [
+                    PieChart(
+                      PieChartData(
+                        sectionsSpace: 4,
+                        centerSpaceRadius: 55,
+                        // Mapping from sortedBreakdown so chart slices match legend order
+                        sections: sortedBreakdown.asMap().entries.map((e) {
+                          return PieChartSectionData(
+                            color: palette[e.key % palette.length],
+                            value: (e.value['amount'] ?? 0).toDouble(),
+                            title: '',
+                            radius: 18,
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                    Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text(
+                            "TOTAL",
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.grey,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            "₹${total.toStringAsFixed(0)}",
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  "₹${item['amount']}",
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.redAccent,
-                  ),
+              ),
+              if (!isNarrow) const SizedBox(width: 40),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  // Mapping from sortedBreakdown for the ranked list
+                  children: sortedBreakdown.asMap().entries.map((e) {
+                    double pct = (e.value['amount'] / total) * 100;
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 10,
+                            height: 10,
+                            decoration: BoxDecoration(
+                              color: palette[e.key % palette.length],
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              e.value['category'].toString().toUpperCase(),
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            "${pct.toStringAsFixed(1)}%",
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
                 ),
-              ],
-            ),
+              ),
+            ],
           );
-        }).toList(),
+        },
       ),
     );
   }
 
-  Widget _buildGapChart(List gapData) {
-    if (gapData.isEmpty) {
-      return _buildEmptyState("No recent activity found.");
-    }
+  // --- PRESERVED LOGIC FOR CHARTS AND LISTS ---
+  Widget _buildGrowthFinanceGrid(Map finance, Map growth, bool isDesktop) {
+    return GridView.count(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      crossAxisCount: isDesktop ? 5 : 2,
+      crossAxisSpacing: 10,
+      mainAxisSpacing: 10,
+      childAspectRatio: isDesktop ? 2.0 : 1.4,
+      children: [
+        _statCard(
+          "Receivable",
+          "₹${finance['receivable'] ?? 0}",
+          Icons.payments,
+          Colors.green,
+          // Moved Staff Adv here with light green font
+          subtitle: "Staff Adv: ₹${finance['unsettled_advances'] ?? 0}",
+          subtitleColor: Colors.lightGreen,
+        ),
+        _statCard(
+          "Payable",
+          "₹${finance['payable'] ?? 0}",
+          Icons.outbox,
+          Colors.red,
+          // Removed staff advance from here
+          subtitle: "Overdue: ₹${finance['overdue_30_days'] ?? 0}",
+        ),
+        _statCard(
+          "Net Cash",
+          "₹${finance['net_balance'] ?? 0}",
+          Icons.account_balance_wallet,
+          Colors.blueGrey,
+          // Removed Pending Wages section as requested
+          subtitle: null,
+        ),
+        _statCard(
+          "Today Sales",
+          "${growth['today_count'] ?? 0} Bills",
+          Icons.receipt_long,
+          Colors.blue,
+        ),
+        _statCard(
+          "Vs Yesterday",
+          "${growth['yesterday_count'] ?? 0} Bills",
+          Icons.history,
+          Colors.orange,
+        ),
+      ],
+    );
+  }
 
+  Widget _buildGapChart(List gapData) {
+    if (gapData.isEmpty) return _buildEmptyState("No recent activity found.");
     return Container(
-      height: 280, // Content heavy height
+      height: 280,
       padding: const EdgeInsets.fromLTRB(10, 20, 10, 10),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -303,13 +444,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       BarChartRodData(
                         toY: (e.value['prod'] ?? 0).toDouble(),
                         color: const Color(0xFF37474F),
-                        width: 14, // Increased width for density
+                        width: 14,
                         borderRadius: BorderRadius.circular(2),
                       ),
                       BarChartRodData(
                         toY: (e.value['sales'] ?? 0).toDouble(),
                         color: Colors.orange,
-                        width: 14, // Increased width for density
+                        width: 14,
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ],
@@ -323,87 +464,100 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // --- GROWTH & FINANCE GRID (STRICT NULL SAFETY) ---
-  Widget _buildGrowthFinanceGrid(Map finance, Map growth, bool isDesktop) {
-    return GridView.count(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisCount: isDesktop ? 5 : 2,
-      crossAxisSpacing: 10,
-      mainAxisSpacing: 10,
-      childAspectRatio: isDesktop ? 2.0 : 1.4,
-      children: [
-        _statCard(
-          "Receivable",
-          "₹${finance['receivable'] ?? 0}",
-          Icons.payments,
-          Colors.green,
-          subtitle: "Overdue: ₹${finance['overdue_30_days'] ?? 0}",
-        ),
-        _statCard(
-          "Payable",
-          "₹${finance['payable'] ?? 0}",
-          Icons.outbox,
-          Colors.red,
-        ),
-        _statCard(
-          "Net Cash",
-          "₹${finance['net_balance'] ?? 0}",
-          Icons.account_balance_wallet,
-          Colors.blueGrey,
-          // NEW: Adding a subtitle to show total spent this month
-          subtitle: "Monthly Expenses: ₹${finance['monthly_expenses'] ?? 0}",
-        ),
-        _statCard(
-          "Today Sales",
-          "${growth['today_count'] ?? 0} Bills",
-          Icons.receipt_long,
-          Colors.blue,
-        ),
-        _statCard(
-          "Vs Yesterday",
-          "${growth['yesterday_count'] ?? 0} Bills",
-          Icons.history,
-          Colors.orange,
-        ),
-      ],
-    );
-  }
-
-  // --- REUSED COMPONENTS WITH OPTIMIZED STYLES ---
-
-  Widget _chartLegend(String label, Color color) {
-    return Row(
-      children: [
-        Container(
-          width: 10,
-          height: 10,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 4),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 10,
-            color: Colors.grey,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildEmptyState(String message) {
+  Widget _statCard(
+    String title,
+    String value,
+    IconData icon,
+    Color color, {
+    String? subtitle,
+    Color subtitleColor = Colors.redAccent, // Default for overdue
+  }) {
     return Container(
-      height: 150,
-      alignment: Alignment.center,
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.grey[50],
+        color: Colors.white,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
       ),
-      child: Text(message, style: const TextStyle(color: Colors.grey)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: color, size: 16),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  style: const TextStyle(
+                    color: Colors.grey,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              value,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ),
+          if (subtitle != null)
+            Text(
+              subtitle,
+              style: TextStyle(
+                color: subtitleColor, // Uses light green for Staff Adv
+                fontSize: 9,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+        ],
+      ),
     );
   }
+
+  Widget _buildSectionHeader(String title) => Text(
+    title.toUpperCase(),
+    style: const TextStyle(
+      fontSize: 11,
+      fontWeight: FontWeight.bold,
+      color: Color(0xFF37474F),
+      letterSpacing: 0.5,
+    ),
+  );
+  Widget _buildEmptyState(String message) => Container(
+    height: 150,
+    alignment: Alignment.center,
+    decoration: BoxDecoration(
+      color: Colors.grey[50],
+      borderRadius: BorderRadius.circular(16),
+    ),
+    child: Text(message, style: const TextStyle(color: Colors.grey)),
+  );
+  Widget _chartLegend(String label, Color color) => Row(
+    children: [
+      Container(
+        width: 10,
+        height: 10,
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      ),
+      const SizedBox(width: 4),
+      Text(
+        label,
+        style: const TextStyle(
+          fontSize: 10,
+          color: Colors.grey,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    ],
+  );
 
   Widget _buildAlertBanner(List critical) {
     return SizedBox(
@@ -438,39 +592,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildSplitLists(List customers, List purchases, bool isDesktop) {
-    return Column(
+    return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildSectionHeader("Top Customers"),
-                  const SizedBox(height: 8),
-                  _buildDataList(customers, Icons.person, Colors.blue),
-                ],
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildSectionHeader("Top Customers"),
+              const SizedBox(height: 8),
+              // This now uses the updated clickable _buildDataList
+              _buildDataList(
+                customers,
+                Icons.person,
+                Colors.blue,
+                isPurchase: false,
               ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildSectionHeader("Recent Purchases"),
-                  const SizedBox(height: 8),
-                  _buildDataList(
-                    purchases,
-                    Icons.shopping_cart,
-                    Colors.green,
-                    isPurchase: true,
-                  ),
-                ],
+            ],
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildSectionHeader("Recent Purchases"),
+              const SizedBox(height: 8),
+              _buildDataList(
+                purchases,
+                Icons.shopping_cart,
+                Colors.green,
+                isPurchase: true,
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ],
     );
@@ -495,16 +650,51 @@ class _DashboardScreenState extends State<DashboardScreen> {
         separatorBuilder: (c, i) => const Divider(height: 1, indent: 45),
         itemBuilder: (c, i) {
           final item = items[i];
+
+          // Backend now provides 'id', 'name' for customers
+          // and 'id', 'partner_name' for purchases
+          final String pId = item['id']?.toString() ?? '';
+          final String pName = isPurchase
+              ? (item['partner_name'] ?? 'Unknown')
+              : (item['name'] ?? 'Unknown');
+          final String pType = isPurchase ? "SUPPLIER" : "BUYER";
+
           return ListTile(
             dense: true,
+            onTap: pId.isEmpty
+                ? null
+                : () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => PartnerLedgerScreen(
+                          partnerId: pId,
+                          partnerName: pName,
+                          partnerType: pType,
+                        ),
+                      ),
+                    );
+                  },
             leading: Icon(icon, color: color, size: 16),
             title: Text(
               isPurchase ? "Bill: ${item['bill']}" : "${item['name']}",
               style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
             ),
-            trailing: Text(
-              "₹${item['amount']}",
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+            subtitle: isPurchase
+                ? Text(pName, style: const TextStyle(fontSize: 10))
+                : null,
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  "₹${item['amount']}",
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const Icon(Icons.chevron_right, size: 14, color: Colors.grey),
+              ],
             ),
           );
         },
@@ -563,75 +753,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _statCard(
-    String title,
-    String value,
-    IconData icon,
-    Color color, {
-    String? subtitle,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Row(
-            children: [
-              Icon(icon, color: color, size: 16),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  title,
-                  maxLines: 1,
-                  style: const TextStyle(
-                    color: Colors.grey,
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(
-              value,
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-          ),
-          if (subtitle != null)
-            Text(
-              subtitle,
-              style: const TextStyle(
-                color: Colors.red,
-                fontSize: 9,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSectionHeader(String title) => Text(
-    title.toUpperCase(),
-    style: const TextStyle(
-      fontSize: 11,
-      fontWeight: FontWeight.bold,
-      color: Color(0xFF37474F),
-      letterSpacing: 0.5,
-    ),
-  );
-
-  // --- UI FRAMEWORK (SIDEBARS & TOPBAR) ---
-
   Widget _buildFloatingSidebar(BuildContext context, bool isDesktop) {
     return Container(
       width: 250,
@@ -649,20 +770,45 @@ class _DashboardScreenState extends State<DashboardScreen> {
   PreferredSizeWidget _buildTopBar(BuildContext context, bool isDesktop) {
     return AppBar(
       elevation: 0,
-      backgroundColor: const Color(0xFF37474F),
+      backgroundColor: const Color(0xFF37474F), // Valampuri Navy
       centerTitle: true,
       title: const Text(
-        "VALAMPURI ELASTICS",
+        "VALAMPURE ELASTICS",
         style: TextStyle(
           color: Colors.white,
           fontSize: 16,
           fontWeight: FontWeight.bold,
+          letterSpacing: 1.1,
         ),
       ),
       actions: [
+        // Refresh Button
         IconButton(
-          icon: const Icon(Icons.refresh, color: Colors.white),
+          icon: const Icon(Icons.refresh, color: Colors.white70, size: 20),
           onPressed: _refreshData,
+        ),
+        // --- PROFILE HOOK ---
+        Padding(
+          padding: const EdgeInsets.only(right: 12.0),
+          child: GestureDetector(
+            onTap: () async {
+              // Navigates to the Profile Screen we just built
+              await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const ProfileScreen()),
+              );
+              _refreshData(); // Refresh dashboard in case company name changed
+            },
+            child: CircleAvatar(
+              radius: 16,
+              backgroundColor: Colors.white.withOpacity(0.1),
+              child: const Icon(
+                Icons.person_outline,
+                color: Colors.white,
+                size: 20,
+              ),
+            ),
+          ),
         ),
       ],
     );
@@ -672,80 +818,91 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Column(
       children: [
         const SizedBox(height: 20),
-
-        // 1. DASHBOARD
         _sidebarItem(
           Icons.grid_view_rounded,
           "Dashboard",
           active: true,
           onTap: () => Navigator.popUntil(context, (route) => route.isFirst),
         ),
-
-        // 2. PARTIES
         _sidebarItem(
           Icons.people_outline,
           "Parties",
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const PartnersListScreen()),
-          ),
+          onTap: () async {
+            if (!isDesktop) Navigator.pop(context);
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const PartnersListScreen(),
+              ),
+            );
+            _refreshData(); // Auto-refresh after returning
+          },
         ),
-
-        // 3. PURCHASE
         _sidebarItem(
           Icons.shopping_bag_outlined,
           "Purchase",
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const PurchaseEntryScreen(),
-            ),
-          ),
+          onTap: () async {
+            if (!isDesktop) Navigator.pop(context);
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const PurchaseEntryScreen(),
+              ),
+            );
+            _refreshData();
+          },
         ),
-
-        // 4. MANUFACTURING
         _sidebarItem(
           Icons.precision_manufacturing_outlined,
           "Manufacturing",
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => ProductionLogScreen()),
-          ),
+          onTap: () async {
+            if (!isDesktop) Navigator.pop(context);
+            await Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => ProductionLogScreen()),
+            );
+            _refreshData();
+          },
         ),
-
-        // 5. BILLING (SALES)
         _sidebarItem(
           Icons.receipt_long_outlined,
           "Billing",
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => SalesEntryScreen()),
-          ),
+          onTap: () async {
+            if (!isDesktop) Navigator.pop(context);
+            await Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => SalesEntryScreen()),
+            );
+            _refreshData();
+          },
         ),
-
-        // 6. EXPENSES (NEWLY HOOKED)
         _sidebarItem(
           Icons.money_off_rounded,
           "Expenses",
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const ExpensesScreen()),
-          ),
-        ),
-
-        // 7. SALARY & STAFF (DUMMY)
-        _sidebarItem(
-          Icons.badge_outlined,
-          "Salary & Staff",
-          onTap: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("Salary module coming soon!")),
+          onTap: () async {
+            if (!isDesktop) Navigator.pop(context);
+            await Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const ExpensesScreen()),
             );
+            _refreshData();
           },
         ),
-
+        _sidebarItem(
+          Icons.groups_outlined,
+          "Salary & Staff",
+          onTap: () async {
+            if (!isDesktop) Navigator.pop(context);
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const EmployeeListScreen(),
+              ),
+            );
+            _refreshData();
+          },
+        ),
         const Spacer(),
-
         _sidebarItem(
           Icons.logout,
           "Logout",

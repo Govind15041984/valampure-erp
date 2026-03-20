@@ -48,7 +48,9 @@ class SalesApi {
   // 3. CREATE SALES INVOICE ENTRY
   // This sends the JSON data matching your Pydantic schema to the FastAPI backend.
   // The PostgreSQL trigger will automatically update the Customer's balance.
-  static Future<bool> createInvoice(Map<String, dynamic> data) async {
+  static Future<Map<String, dynamic>?> createInvoice(
+    Map<String, dynamic> data,
+  ) async {
     print("DEBUG: Sending to /sales/create -> ${jsonEncode(data)}");
 
     try {
@@ -56,15 +58,15 @@ class SalesApi {
 
       if (response.statusCode == 201 || response.statusCode == 200) {
         print("DEBUG: Sales Invoice Created Successfully");
-        return true;
+        // Return the decoded JSON body so we can get the 'id'
+        return jsonDecode(response.body);
       } else {
         final error = jsonDecode(response.body);
         print("DEBUG: Sales Backend Error: ${error['detail']}");
-        return false;
+        return null; // Return null if the server rejected it
       }
     } catch (e) {
       print("DEBUG: createInvoice Error -> $e");
-      // Optional: You can handle specific error types here (e.g. timeout)
       rethrow;
     }
   }

@@ -122,21 +122,49 @@ def finalize_purchase_bill(src_temp_name: str, canonical_name: str) -> str:
 # -----------------------
 # Profile Logic
 # -----------------------
-def generate_profile_presigned_url(profile_id: str, file_ext: str = "jpg"):
-    object_name = f"profiles/{profile_id}/{uuid.uuid4()}.{file_ext}"
+def generate_profile_presigned_url(profile_id: str, file_ext: str = "png"):
+    """
+    Step 1: Get a temporary URL for the Logo. 
+    Matches the existing import in upload_router.py
+    """
+    # Using a specific 'logo_tmp' prefix to distinguish from 'tmp' bills
+    temp_name = f"logo_tmp_{profile_id}_{uuid.uuid4().hex[:6]}.{file_ext}"
     try:
         upload_url = minio_client.presigned_put_object(
             PROFILE_BUCKET,
-            object_name,
+            temp_name,
             expires=timedelta(hours=1),
         )
         return {
             "upload_url": upload_url,
-            "file_url": _object_http_url(PROFILE_BUCKET, object_name),
-            "object_name": object_name,
+            "file_url": _object_http_url(PROFILE_BUCKET, temp_name),
+            "object_name": temp_name
         }
     except Exception as e:
-        raise RuntimeError(f"Profile upload error: {e}")
+        raise RuntimeError(f"Failed to generate profile upload URL: {e}")
+
+def finalize_profile_logo_update(profile_id: str, src_temp_name: str) -> str:
+    """
+    Step 2: Move the logo to its permanent home.
+    Matches the naming style of 'finalize_purchase_bill'.
+    """
+    file_ext = src_temp_name.split(".")[-1]
+    # Permanent Path: profiles/ID/logo_RANDOM.png
+    canonical_name = f"profiles/{profile_id}/logo_{uuid.uuid4().hex[:4]}.{file_ext}"
+    
+    try:
+        copy_src = CopySource(PROFILE_BUCKET, src_temp_name)
+        minio_client.copy_object(PROFILE_BUCKET, canonical_name, copy_src)
+        minio_client.remove_object(PROFILE_BUCKET, src_temp_name)
+        return _object_http_url(PROFILE_BUCKET, canonical_name)
+    except Exception as e:
+        print(f"Logo finalization error: {e}")
+        # Return temp URL if move fails so the image still shows up
+        return _object_http_url(PROFILE_BUCKET, src_temp_name)
+
+# -----------------------
+# Sales Logic
+# -----------------------
 
 def generate_sales_presigned_url(profile_id: str, file_ext: str = "pdf"):
     temp_name = f"tmp_sale_{profile_id}_{uuid.uuid4().hex}.{file_ext}"
